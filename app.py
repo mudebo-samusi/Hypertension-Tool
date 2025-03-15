@@ -10,6 +10,7 @@ from itsdangerous import URLSafeTimedSerializer
 import joblib
 import numpy as np
 import pandas as pd
+import logging
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -31,6 +32,35 @@ jwt = JWTManager(app)
 mail = Mail(app)
 serializer = URLSafeTimedSerializer(app.config["SECRET_KEY"])
 
+# Add this endpoint to handle profile updates
+@app.route("/update-profile", methods=["POST"])
+@jwt_required()
+def update_profile():
+    user_id = get_jwt_identity()
+    data = request.json
+    logging.info(f"Received data: {data}")
+    username = data.get("username")
+    email = data.get("email")
+    role = data.get("role")
+    password = data.get("password")
+
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"error": "User not found."}), 404
+
+    if username:
+        user.username = username
+    if email:
+        user.email = email
+    if role:
+        user.role = role
+    if password:
+        user.password = bcrypt.generate_password_hash(password).decode("utf-8")
+
+    db.session.commit()
+
+    return jsonify({"message": "Profile updated successfully."}), 200
+
 # Initialize CORS
 CORS(app, resources={r"/*": {"origins": "*"}})
 
@@ -42,6 +72,7 @@ label_encoder = joblib.load("label_encoder.pkl")
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(20), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)  # Add email field
     password = db.Column(db.String(60), nullable=False)
     role = db.Column(db.String(20), nullable=False, default="patient")
 
@@ -234,10 +265,13 @@ def predict():
 
         # Prepare input for the model
         input_data = np.array([[systolic, diastolic, heart_rate]])
-
+        logging.info(f"Input data: {input_data}")
+        # Make prediction
         # Make prediction
         prediction = model.predict(input_data)
+        logging.info(f"Prediction: {prediction}")
         category = label_encoder.inverse_transform(prediction)[0]
+        logging.info(f"Category: {category}")
 
         # Get treatment recommendation
         recommendation = get_treatment_recommendation(category)
@@ -248,8 +282,8 @@ def predict():
             "recommendation": recommendation
         })
     except Exception as e:
-        return jsonify({"error": str(e)}), 500    
-    
+        logging.error(f"Error during prediction: {e}")
+        return jsonify({"error": str(e)}), 500
 # Run the Flask app
 if __name__ == "__main__":
     app.run(debug=True)
