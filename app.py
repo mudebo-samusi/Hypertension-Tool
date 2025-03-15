@@ -10,6 +10,7 @@ from itsdangerous import URLSafeTimedSerializer
 import joblib
 import numpy as np
 import pandas as pd
+import logging
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -30,6 +31,31 @@ login_manager = LoginManager(app)
 jwt = JWTManager(app)
 mail = Mail(app)
 serializer = URLSafeTimedSerializer(app.config["SECRET_KEY"])
+
+# Add this endpoint to handle profile updates
+@app.route("/update-profile", methods=["POST"])
+@jwt_required()
+def update_profile():
+    user_id = get_jwt_identity()
+    data = request.json
+    username = data.get("username")
+    role = data.get("role")
+    password = data.get("password")
+
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"error": "User not found."}), 404
+
+    if username:
+        user.username = username
+    if role:
+        user.role = role
+    if password:
+        user.password = bcrypt.generate_password_hash(password).decode("utf-8")
+
+    db.session.commit()
+
+    return jsonify({"message": "Profile updated successfully."}), 200
 
 # Initialize CORS
 CORS(app, resources={r"/*": {"origins": "*"}})
