@@ -1,69 +1,61 @@
-import React from "react";
-import { useState } from "react";
-import PropTypes from "prop-types";
-import axios from "axios";
+import React, { useState, useContext } from "react";
+import api from "../services/api";
+import AuthContext from "../context/AuthContext";
 
-const Login = ({ setIsLoggedIn }) => {
+const Login = () => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const { login } = useContext(AuthContext);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
     try {
-      const response = await axios.post("http://127.0.0.1:5000/login", {
-        username,
-        password,
-      });
-      localStorage.setItem("access_token", response.data.access_token);
-      setIsLoggedIn(true);
+      const data = await api.login(username, password);
+      login(data.user); // Use the login function from context
       setError("");
     } catch (err) {
-      setError(err.response?.data?.error || "An error occurred.");
+      setError(err.message || "An error occurred.");
     }
   };
 
   return (
-    <div>
-      <h2>Login</h2>
-      {error && <div className="alert alert-danger">{error}</div>}
-      <form onSubmit={handleSubmit}>
-        <div className="mb-3">
-          <label htmlFor="username" className="form-label">
+    <div className="max-w-md mx-auto mt-8 p-6 bg-white rounded-lg shadow-md">
+      <h2 className="text-2xl font-bold mb-6">Login</h2>
+      {error && <div className="p-4 mb-4 text-red-700 bg-red-100 rounded-lg">{error}</div>}
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-1">
             Username
           </label>
           <input
             type="text"
-            className="form-control"
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             id="username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             required
           />
         </div>
-        <div className="mb-3">
-          <label htmlFor="password" className="form-label">
+        <div>
+          <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
             Password
           </label>
           <input
             type="password"
-            className="form-control"
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             id="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
           />
         </div>
-        <button type="submit" className="btn btn-primary">
+        <button type="submit" className="w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
           Login
         </button>
       </form>
     </div>
   );
-};
-Login.propTypes = {
-  setIsLoggedIn: PropTypes.func.isRequired,
 };
 
 export default Login;

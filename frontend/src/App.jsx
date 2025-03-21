@@ -1,8 +1,6 @@
 // App.js
 import React from "react";
-import { useState } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import "bootstrap/dist/css/bootstrap.min.css";
 import Login from "./components/Login";
 import Register from "./components/Register";
 import BPMonitor from "./components/BPMonitor";
@@ -20,34 +18,33 @@ import RequestPasswordReset from "./components/RequestPasswordReset";
 import ResetPassword from "./components/ResetPassword";
 import './App.css';
 import { AuthProvider } from "./context/AuthContext";
+import BPChart from "./components/BPChart";
 
 
 function App() {
   return (
-    <AuthProvider>
-      <Router>
-        <div className="container mt-5">
-          <h1 className="text-center mb-4">Hypertension Diagnosis Tool</h1>
-          <Navbar/>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="/dashboard" element={<Dashboard/>} />
-            <Route path="/doctor-review" element={<DoctorReviews/>} />
-            <Route path="/" element={<Home/>} />
-            <Route path="/patients" element={<Patients/>} />
-            <Route path="/reviews" element={<Reviews/>} />
-            <Route path="/settings" element={<Settings/>} />
-            <Route path="/monitor" element={<BPMonitor />} />
-            <Route path="/history" element={<History />} />
-            <Route path="/profile" element={<Profile />} />
-            <Route path="/request-password-reset" element={<RequestPasswordReset />} />
-            <Route path="/reset-password" element={<ResetPassword />} />
-          </Routes>
-          <Footer/>
-        </div>
-      </Router>
-    </AuthProvider>
+    <Router>
+      <AuthProvider>
+        <Navbar/>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/dashboard" element={<Dashboard/>} />
+          <Route path="/doctor-review" element={<DoctorReviews/>} />
+          <Route path="/" element={<Home/>} />
+          <Route path="/patients" element={<Patients/>} />
+          <Route path="/reviews" element={<Reviews/>} />
+          <Route path="/settings" element={<Settings/>} />
+          <Route path="/monitor" element={<BPMonitor />} />
+          <Route path="/charts" element={<BPChart />} />
+          <Route path="/history" element={<History />} />
+          <Route path="/profile" element={<Profile />} />
+          <Route path="/request-password-reset" element={<RequestPasswordReset />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
+        </Routes>
+        <Footer/>
+      </AuthProvider>
+    </Router>
   );
 }
 

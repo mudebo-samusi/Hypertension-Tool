@@ -5,10 +5,10 @@ import History from "./History.jsx";
 
 const Dashboard = () => {
   return (
-    <div style={{ display: "flex" }}>
+    <div className="flex">
       <Sidebar />
-      <div style={{ flex: 1, padding: "20px" }}>
-        <h1>Dashboard</h1>
+      <div className="flex-1 p-5">
+        <h1 className="text-2xl font-bold mb-4">Dashboard</h1>
         <BPMonitor />
         <History />
       </div>

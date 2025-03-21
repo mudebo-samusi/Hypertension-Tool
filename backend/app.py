@@ -24,14 +24,19 @@ app.config["MAIL_USERNAME"] = "your-email@gmail.com"
 app.config["MAIL_PASSWORD"] = "your-email-password"
 app.config["MAIL_DEFAULT_SENDER"] = "your-email@gmail.com"
 
-# Initialize CORS with specific configuration
+# Update CORS configuration
 CORS(app, resources={
     r"/*": {
-        "origins": ["http://localhost:5173", "http://127.0.0.1:5173"],
+        "origins": ["http://localhost:5173"],  # Update this with your frontend URL
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"]
+        "allow_headers": ["Content-Type", "Authorization"],
+        "expose_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True
     }
 })
+
+# Add debug logging
+logging.basicConfig(level=logging.DEBUG)
 
 # Initialize extensions
 db = SQLAlchemy(app)
@@ -103,23 +108,32 @@ def load_user(user_id):
 # Register endpoint
 @app.route("/register", methods=["POST"])
 def register():
-    data = request.json
-    username = data.get("username")
-    role = data.get("role")
-    password = data.get("password")
+    try:
+        data = request.json
+        username = data.get("username")
+        email = data.get("email")
+        role = data.get("role")
+        password = data.get("password")
 
-    if not username or not password:
-        return jsonify({"error": "Username and password are required."}), 400
+        if not all([username, email, password, role]):
+            return jsonify({"success": False, "message": "All fields are required."}), 400
 
-    if User.query.filter_by(username=username).first():
-        return jsonify({"error": "Username already exists."}), 400
+        if User.query.filter_by(username=username).first():
+            return jsonify({"success": False, "message": "Username already exists."}), 400
+            
+        if User.query.filter_by(email=email).first():
+            return jsonify({"success": False, "message": "Email already exists."}), 400
 
-    hashed_password = bcrypt.generate_password_hash(password).decode("utf-8")
-    user = User(username=username, password=hashed_password, role=role)
-    db.session.add(user)
-    db.session.commit()
+        hashed_password = bcrypt.generate_password_hash(password).decode("utf-8")
+        user = User(username=username, email=email, password=hashed_password, role=role)
+        db.session.add(user)
+        db.session.commit()
 
-    return jsonify({"message": "User registered successfully."}), 201
+        return jsonify({"success": True, "message": "User registered successfully."}), 201
+    except Exception as e:
+        db.session.rollback()
+        print(f"Registration error: {str(e)}")  # For debugging
+        return jsonify({"success": False, "message": "An error occurred during registration."}), 500
 
 # Login endpoint
 @app.route("/login", methods=["POST"])
@@ -132,7 +146,15 @@ def login():
 
     if user and bcrypt.check_password_hash(user.password, password):
         access_token = create_access_token(identity=user.id)
-        return jsonify({"access_token": access_token}), 200
+        return jsonify({
+            "access_token": access_token,
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "role": user.role
+            }
+        }), 200
     else:
         return jsonify({"error": "Invalid username or password."}), 401
 
@@ -240,20 +262,36 @@ def get_treatment_recommendation(category):
 @app.route("/get-readings", methods=["GET"])
 @jwt_required()
 def get_readings():
-    user_id = get_jwt_identity()
-    readings = BPReading.query.filter_by(user_id=user_id).all()
+    try:
+        user_id = get_jwt_identity()
+        logging.debug(f"User ID from token: {user_id}")
+        
+        if not user_id:
+            return jsonify({"msg": "Invalid or missing authentication token"}), 401
 
-    readings_data = [
-        {
-            "systolic": reading.systolic,
-            "diastolic": reading.diastolic,
-            "heart_rate": reading.heart_rate,
-            "timestamp": reading.timestamp,
-        }
-        for reading in readings
-    ]
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({"msg": "User not found"}), 404
 
-    return jsonify(readings_data), 200
+        readings = BPReading.query.filter_by(user_id=user_id)\
+                         .order_by(BPReading.timestamp.desc())\
+                         .all()
+        
+        readings_data = [
+            {
+                "systolic": float(reading.systolic),
+                "diastolic": float(reading.diastolic),
+                "heart_rate": float(reading.heart_rate),
+                "timestamp": reading.timestamp.isoformat() if reading.timestamp else None
+            }
+            for reading in readings
+        ]
+
+        return jsonify({"readings": readings_data}), 200
+
+    except Exception as e:
+        logging.error(f"Error in get_readings: {str(e)}")
+        return jsonify({"msg": str(e)}), 401
 
 # Prediction endpoint
 @app.route("/predict", methods=["POST"])

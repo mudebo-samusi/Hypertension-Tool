@@ -49,6 +49,7 @@ const BPChart = ({ readings }) => {
 
   const options = {
     responsive: true,
+    maintainAspectRatio: false,  // Add this to allow custom sizing
     plugins: {
       legend: {
         position: "top",
@@ -60,7 +61,11 @@ const BPChart = ({ readings }) => {
     },
   };
 
-  return <Line data={data} options={options} />;
+  return (
+    <div className="w-full h-[400px] p-4 bg-white rounded-lg shadow-md">
+      <Line data={data} options={options} />
+    </div>
+  );
 };
 BPChart.propTypes = {
   readings: PropTypes.arrayOf(

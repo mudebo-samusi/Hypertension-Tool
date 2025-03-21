@@ -12,13 +12,19 @@ const Patients = () => {
   }, []);
 
   return (
-    <div>
-      <h2>Patient List</h2>
-      <ul>
+    <div className="container mx-auto px-4 py-8">
+      <h2 className="text-3xl font-bold text-gray-800 mb-6">Patient List</h2>
+      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
         {patients.map(patient => (
-          <li key={patient.id}>{patient.name} - {patient.bpStatus}</li>
+          <div 
+            key={patient.id}
+            className="bg-white rounded-lg shadow-md p-4 hover:shadow-lg transition-shadow duration-200"
+          >
+            <div className="text-lg font-semibold text-gray-700">{patient.name}</div>
+            <div className="text-sm text-gray-600">BP Status: {patient.bpStatus}</div>
+          </div>
         ))}
-      </ul>
+      </div>
     </div>
   );
 };
