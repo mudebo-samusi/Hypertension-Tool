@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useContext } from "react";
 import { Link } from "react-router-dom";
 import AuthContext from "../context/AuthContext";
+import logo2 from "../assets/logo2.png"
 
 const Navbar = () => {
   const { user, logout } = useContext(AuthContext);
@@ -16,7 +17,7 @@ const Navbar = () => {
       <div className="max-w-6xl mx-auto px-4">
         <div className="flex justify-between items-center h-16">
           <Link className="text-xl font-semibold text-violet-500" to="/">
-            PulsePal
+            <img src={logo2} alt="Logo" className="rounded-full w-18 h-18 mb-1" ></img>
           </Link>
 
           {/* Mobile menu button */}
