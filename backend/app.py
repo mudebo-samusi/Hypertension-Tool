@@ -27,7 +27,7 @@ app.config["MAIL_DEFAULT_SENDER"] = "your-email@gmail.com"
 # Update CORS configuration
 CORS(app, resources={
     r"/*": {
-        "origins": ["http://localhost:5173"],  # Update this with your frontend URL
+        "origins": ["http://localhost:5173", "http://172.30.64.1:5173"], # Update this with your frontend URL
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization"],
         "expose_headers": ["Content-Type", "Authorization"],

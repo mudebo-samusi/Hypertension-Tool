@@ -1,4 +1,5 @@
 import React from "react";
+import logo1 from "../assets/logo1.png"
 
 const Home = () => {
   return (
@@ -9,6 +10,7 @@ const Home = () => {
       <p className="text-base sm:text-lg text-gray-600 text-center max-w-sm sm:max-w-xl md:max-w-2xl">
         Monitor and manage a patients blood pressure easily.
       </p>
+      <img src={logo1} alt="logo2" className="rounded-sm h-92 w-92 mt-12"></img>
     </div>
   );
 };
