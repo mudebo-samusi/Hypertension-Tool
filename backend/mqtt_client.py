@@ -40,12 +40,9 @@ def on_message(client, userdata, msg):
 client = paho.Client(client_id="", userdata=None, protocol=paho.MQTTv5)
 client.on_connect = on_connect
 
-# enable TLS for secure connection
-client.tls_set(tls_version=mqtt.client.ssl.PROTOCOL_TLS)
-# set username and password
-client.username_pw_set("hivemq.webclient.1742539695902", "phM:;9bjx68Y@L*c4UCX")
-# connect to HiveMQ Cloud on port 8883 (default for MQTT)
-client.connect("c85278c1b361443c947ef5503d029812.s1.eu.hivemq.cloud", 8883)
+# No TLS needed for public broker
+# Connect to HiveMQ public broker
+client.connect("broker.hivemq.com", 1883)
 
 # setting callbacks, use separate functions like above for better visibility
 client.on_subscribe = on_subscribe
@@ -53,7 +50,7 @@ client.on_message = on_message
 client.on_publish = on_publish
 
 # subscribe to all topics of encyclopedia by using the wildcard "#"
-client.subscribe("Data_Stream/#", qos=1)
+client.subscribe("derrick/healthmon//data", qos=1)
 
 # a single publish, this can also be done in loops, etc.
 client.publish("Data_Stream/temperature", payload="hot", qos=1)
