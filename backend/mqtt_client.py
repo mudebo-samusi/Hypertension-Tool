@@ -1,6 +1,13 @@
 import time
 import paho.mqtt.client as paho
 from paho import mqtt
+import json
+import threading
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger('mqtt_client')
 
 # MQTT Configuration from the provided details
 mqtt_server = "mqtt.koinsightug.com"
@@ -12,79 +19,126 @@ health_topic = "healthmon/data"
 status_topic = "healthmon/status"
 notification_topic = "healthmon/notifications"
 
+# Global client variable
+client = None
+
+# Callback handlers (will be set by the Flask app)
+health_data_handler = None
+prediction_handler = None
+
 # Callback for when the client receives a CONNACK response from the server
 def on_connect(client, userdata, flags, rc, properties=None):
-    print(f"Connected with result code {rc}")
+    logger.info(f"Connected with result code {rc}")
     
     if rc == 0:
-        print("Successfully connected to broker!")
+        logger.info("Successfully connected to broker!")
         # Subscribe to all required topics
         client.subscribe(health_topic, qos=1)
         client.subscribe(status_topic, qos=1)
-        print(f"Subscribed to: {health_topic}")
-        print(f"Subscribed to: {status_topic}")
+        logger.info(f"Subscribed to: {health_topic}")
+        logger.info(f"Subscribed to: {status_topic}")
     else:
-        print(f"Failed to connect. Return code: {rc}")
+        logger.error(f"Failed to connect. Return code: {rc}")
 
 # Callback when a message is published
 def on_publish(client, userdata, mid, properties=None):
-    print(f"Message published. Message ID: {mid}")
+    logger.info(f"Message published. Message ID: {mid}")
 
 # Callback when a subscription is confirmed
 def on_subscribe(client, userdata, mid, granted_qos, properties=None):
-    print(f"Subscription confirmed. Message ID: {mid}, QoS: {granted_qos}")
+    logger.info(f"Subscription confirmed. Message ID: {mid}, QoS: {granted_qos}")
 
 # Callback when a message is received
 def on_message(client, userdata, msg):
-    print(f"Received message on topic {msg.topic}: {msg.payload.decode()}")
+    logger.info(f"Received message on topic {msg.topic}: {msg.payload.decode()}")
     
-    # Example of how to process different topics
-    if msg.topic == health_topic:
-        process_health_data(msg.payload.decode())
+    # Process different topics
+    if msg.topic == health_topic and health_data_handler:
+        try:
+            data = json.loads(msg.payload.decode())
+            health_data_handler(data)
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse JSON from message: {msg.payload.decode()}")
+        except Exception as e:
+            logger.error(f"Error processing health data: {e}")
     elif msg.topic == status_topic:
         process_status_update(msg.payload.decode())
 
-# Process health data (example function)
-def process_health_data(data):
-    print(f"Processing health data: {data}")
-    # Add your health data processing logic here
-
 # Process status updates (example function)
 def process_status_update(status):
-    print(f"Processing status update: {status}")
+    logger.info(f"Processing status update: {status}")
     # Add your status update processing logic here
 
 # Function to send notifications
 def send_notification(message):
-    client.publish(notification_topic, message, qos=1)
-    print(f"Notification sent: {message}")
+    if client and client.is_connected():
+        if isinstance(message, dict):
+            message = json.dumps(message)
+        client.publish(notification_topic, message, qos=1)
+        logger.info(f"Notification sent: {message}")
+    else:
+        logger.error("Cannot send notification: MQTT client not connected")
 
-# Create MQTT client instance with MQTT v5
-client = paho.Client(client_id=client_id, userdata=None, protocol=paho.MQTTv5)
+# Function to send prediction results via MQTT
+def send_prediction_result(prediction_data):
+    if client and client.is_connected():
+        try:
+            message = json.dumps(prediction_data)
+            client.publish(notification_topic, message, qos=1)
+            logger.info(f"Prediction result sent: {message}")
+        except Exception as e:
+            logger.error(f"Error sending prediction result: {e}")
+    else:
+        logger.error("Cannot send prediction: MQTT client not connected")
 
-# Set callbacks
-client.on_connect = on_connect
-client.on_subscribe = on_subscribe
-client.on_message = on_message
-client.on_publish = on_publish
-
-# Set credentials
-client.username_pw_set(broker_username, broker_password)
-
-# Connect to broker
-try:
-    print(f"Connecting to {mqtt_server} on port {broker_port}...")
-    client.connect(mqtt_server, broker_port)
+# Initialize the MQTT client
+def initialize_mqtt_client(health_callback=None, prediction_callback=None):
+    global client, health_data_handler, prediction_handler
     
-    # Example of sending a notification after connecting
-    # Uncomment to test notifications:
-    # client.loop_start()
-    # time.sleep(2)  # Wait for connection to establish
-    # send_notification("Health Monitor client started and connected")
+    # Store the callbacks
+    health_data_handler = health_callback
+    prediction_handler = prediction_callback
     
-    # Start the loop to process callbacks
-    print("Starting message loop...")
-    client.loop_forever()
+    # Create MQTT client instance with MQTT v5
+    client = paho.Client(client_id=client_id, userdata=None, protocol=paho.MQTTv5)
     
-except Exception as e:
-    print(f"Connection failed: {e}")
+    # Set callbacks
+    client.on_connect = on_connect
+    client.on_subscribe = on_subscribe
+    client.on_message = on_message
+    client.on_publish = on_publish
+    
+    # Set credentials
+    client.username_pw_set(broker_username, broker_password)
+    
+    return client
+
+# Start MQTT client in a separate thread
+def start_mqtt_client(health_callback=None, prediction_callback=None):
+    client = initialize_mqtt_client(health_callback, prediction_callback)
+    
+    # Connect to broker
+    def mqtt_loop():
+        try:
+            logger.info(f"Connecting to {mqtt_server} on port {broker_port}...")
+            client.connect(mqtt_server, broker_port)
+            client.loop_forever()
+        except Exception as e:
+            logger.error(f"MQTT connection failed: {e}")
+    
+    # Start in a new thread
+    mqtt_thread = threading.Thread(target=mqtt_loop, daemon=True)
+    mqtt_thread.start()
+    
+    return mqtt_thread
+
+# For standalone usage
+if __name__ == "__main__":
+    start_mqtt_client()
+    
+    # Keep the main thread alive
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("Exiting...")
