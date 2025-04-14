@@ -1,4 +1,4 @@
-sysBP,diaBP,heartRate,Risk
+Systolic_BP,Diastolic_BP,Heart_Rate,Risk
 106,70,80,0
 121,81,95,0
 127.5,80,75,0
