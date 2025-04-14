@@ -47,7 +47,6 @@ const Navbar = () => {
               <>
                 <Link className="text-gray-600 hover:text-gray-900" to="/profile">Profile</Link>
                 <Link className="text-gray-600 hover:text-gray-900" to="/history">History</Link>
-                <Link className="text-gray-600 hover:text-gray-900" to="/charts">BP Charts</Link>
                 <Link className="text-gray-600 hover:text-gray-900" to="/dashboard">Dashboard</Link>
                 <Link className="text-gray-600 hover:text-gray-900" to="/recommendations">Recommendations</Link>
                 <button 
