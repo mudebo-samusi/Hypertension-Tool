@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify, render_template_string
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
-from datetime import datetime
+import datetime  # Change this line to correctly import datetime
 from flask_bcrypt import Bcrypt
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
@@ -11,12 +11,15 @@ import joblib
 import numpy as np
 import pandas as pd
 import logging
+from pipeline import HypertensionPipeline
+import secrets
+import os
 
 # Initialize Flask app
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "your_secret_key"
+app.secret_key = secrets.token_hex(16)
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///hypertension.db"
-app.config["JWT_SECRET_KEY"] = "your_jwt_secret_key"
+app.config["JWT_SECRET_KEY"] = "4e8b352387ca940a69deafb95a8b62661366473606e4ae6e67ac5f4bde944b99"
 app.config["MAIL_SERVER"] = "smtp.gmail.com"
 app.config["MAIL_PORT"] = 587
 app.config["MAIL_USE_TLS"] = True
@@ -45,6 +48,23 @@ login_manager = LoginManager(app)
 jwt = JWTManager(app)
 mail = Mail(app)
 serializer = URLSafeTimedSerializer(app.config["SECRET_KEY"])
+
+# Add JWT error handler
+@jwt.invalid_token_loader
+def invalid_token_callback(error_string):
+    logging.error(f"Invalid token: {error_string}")
+    return jsonify({
+        'msg': 'Invalid token',
+        'error': error_string
+    }), 422
+
+@jwt.unauthorized_loader
+def unauthorized_callback(error_string):
+    logging.error(f"Missing Authorization header: {error_string}")
+    return jsonify({
+        'msg': 'Missing Authorization header',
+        'error': error_string
+    }), 401
 
 # Add this endpoint to handle profile updates
 @app.route("/update-profile", methods=["POST"])
@@ -75,9 +95,6 @@ def update_profile():
 
     return jsonify({"message": "Profile updated successfully."}), 200
 
-# Load the trained model and label encoder
-model = joblib.load("hypertension_classifier_xgb.pkl")
-label_encoder = joblib.load("label_encoder.pkl")
 
 # User model
 class User(db.Model, UserMixin):
@@ -135,28 +152,106 @@ def register():
         print(f"Registration error: {str(e)}")  # For debugging
         return jsonify({"success": False, "message": "An error occurred during registration."}), 500
 
-# Login endpoint
+
+# Configure Flask-Login
+login_manager.login_view = "login"
+login_manager.login_message = "Please log in to access this page."
+login_manager.login_message_category = "info"
+login_manager.refresh_view = "login"
+login_manager.needs_refresh_message = "Session timed out, please re-login."
+login_manager.needs_refresh_message_category = "warning"
+
+# Enable "remember me" functionality
 @app.route("/login", methods=["POST"])
 def login():
-    data = request.json
-    username = data.get("username")
-    password = data.get("password")
+    try:
+        data = request.json
+        if not data:
+            return jsonify({"error": "No JSON data provided."}), 400
+            
+        username = data.get("username")
+        password = data.get("password")
+        remember = data.get("remember", False)  # Get "remember me" option
 
-    user = User.query.filter_by(username=username).first()
+        logging.debug(f"Login attempt for username: {username}")
 
-    if user and bcrypt.check_password_hash(user.password, password):
-        access_token = create_access_token(identity=user.id)
-        return jsonify({
-            "access_token": access_token,
-            "user": {
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "role": user.role
-            }
-        }), 200
-    else:
-        return jsonify({"error": "Invalid username or password."}), 401
+        if not username or not password:
+            return jsonify({"error": "Username and password are required."}), 400
+
+        user = User.query.filter_by(username=username).first()
+
+        if user and bcrypt.check_password_hash(user.password, password):
+            login_user(user, remember=remember)  # Use Flask-Login's login_user
+            
+            # Create token with longer expiration if remember is True
+            expires_delta = None
+            if remember:
+                expires_delta = datetime.timedelta(days=30)  # 30 days for "remember me"
+            else:
+                expires_delta = datetime.timedelta(hours=1)  # 1 hour for regular session
+                
+            access_token = create_access_token(
+                identity=user.id,
+                expires_delta=expires_delta
+            )
+            
+            return jsonify({
+                "access_token": access_token,
+                "user": {
+                    "id": user.id,
+                    "username": user.username,
+                    "email": user.email,
+                    "role": user.role
+                }
+            }), 200
+        else:
+            return jsonify({"error": "Invalid username or password."}), 401
+    except Exception as e:
+        logging.error(f"Error in login: {e}")
+        return jsonify({"error": "An error occurred during login."}), 500
+
+# Add token verification endpoint
+@app.route("/verify-token", methods=["GET"])
+@jwt_required()
+def verify_token():
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+    
+    if not user:
+        return jsonify({"valid": False}), 401
+    
+    return jsonify({
+        "valid": True,
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "role": user.role
+        }
+    }), 200
+
+# Rename /protected to use as token verification endpoint
+@app.route("/protected", methods=["GET"])
+@jwt_required()
+def protected():
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+    
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+        
+    return jsonify({"message": f"Hello, {user.username}! You are logged in.", "valid": True}), 200
+
+# Logout endpoint
+@app.route("/logout", methods=["POST"])
+@jwt_required()
+def logout():
+    # Note: In a production environment, you would add the current token 
+    # to a blacklist here. Since JWT tokens are stateless, they remain valid 
+    # until they expire unless blacklisted server-side.
+            
+    # Client-side, the token should be removed from storage (localStorage/cookies)
+    return jsonify({"message": "Successfully logged out."}), 200       
 
 # Request password reset endpoint
 @app.route("/request-password-reset", methods=["POST"])
@@ -209,15 +304,6 @@ def reset_password():
 
     return jsonify({"message": "Password reset successfully."}), 200
 
-# Define a function to send notifications
-def send_notification(email, message):
-    msg = Message(
-        "BP Reading Alert",
-        recipients=[email],
-        body=message,
-    )
-    mail.send(msg)
-
 # Save BP reading endpoint
 @app.route("/save-reading", methods=["POST"])
 @jwt_required()
@@ -241,10 +327,7 @@ def save_reading():
     db.session.add(new_reading)
     db.session.commit()
 
-    # Send notification for critical BP
-    if systolic >= 140 or diastolic >= 90:
-        user = User.query.get(user_id)
-        send_notification(user.email, "Your BP reading is critical. Please consult a doctor.")
+    # Removed the notification code for critical BP readings
 
     return jsonify({"message": "Reading saved successfully."}), 201
 
@@ -263,35 +346,37 @@ def get_treatment_recommendation(category):
 @jwt_required()
 def get_readings():
     try:
+        logging.debug("Entered get_readings endpoint")
         user_id = get_jwt_identity()
-        logging.debug(f"User ID from token: {user_id}")
+        logging.debug(f"JWT identity: {user_id}")
         
         if not user_id:
+            logging.error("Invalid or missing authentication token")
             return jsonify({"msg": "Invalid or missing authentication token"}), 401
 
         user = User.query.get(user_id)
         if not user:
+            logging.error(f"User with ID {user_id} not found")
             return jsonify({"msg": "User not found"}), 404
 
         readings = BPReading.query.filter_by(user_id=user_id)\
                          .order_by(BPReading.timestamp.desc())\
                          .all()
         
-        readings_data = [
-            {
+        readings_data = []
+        for reading in readings:
+            readings_data.append({
                 "systolic": float(reading.systolic),
                 "diastolic": float(reading.diastolic),
                 "heart_rate": float(reading.heart_rate),
                 "timestamp": reading.timestamp.isoformat() if reading.timestamp else None
-            }
-            for reading in readings
-        ]
+            })
 
-        return jsonify({"readings": readings_data}), 200
+        return jsonify(readings_data), 200
 
     except Exception as e:
         logging.error(f"Error in get_readings: {str(e)}")
-        return jsonify({"msg": str(e)}), 401
+        return jsonify({"msg": "An error occurred while fetching readings", "error": str(e)}), 500
 
 # Prediction endpoint
 @app.route("/predict", methods=["POST"])
@@ -299,31 +384,43 @@ def predict():
     try:
         # Get data from the request
         data = request.json
-        systolic = data.get("systolic")
-        diastolic = data.get("diastolic")
-        heart_rate = data.get("heart_rate")
+        Systolic_BP = data.get("systolic")
+        Diastolic_BP = data.get("diastolic")
+        Heart_Rate = data.get("heart_rate")
 
         # Validate input
-        if not all([systolic, diastolic, heart_rate]):
+        if not all([Systolic_BP, Diastolic_BP, Heart_Rate]):
             return jsonify({"error": "Missing data. Please provide systolic, diastolic, and heart rate."}), 400
 
-        # Prepare input for the model
-        input_data = np.array([[systolic, diastolic, heart_rate]], dtype=np.float32)
+        # Prepare input for the pipeline
+        input_data = {
+            "Systolic_BP": Systolic_BP,
+            "Diastolic_BP": Diastolic_BP,
+            "Heart_Rate": Heart_Rate
+        }
         logging.info(f"Input data: {input_data}")
 
-        # Make prediction
-        prediction = model.predict(input_data)
-        logging.info(f"Prediction: {prediction}")
-        category = label_encoder.inverse_transform(prediction)[0]
-        logging.info(f"Category: {category}")
+        # Use the pipeline for prediction
+        pipeline = HypertensionPipeline()
+        results = pipeline.predict(input_data)
+        logging.info(f"Prediction results: {results}")
 
-        # Get treatment recommendation
-        recommendation = get_treatment_recommendation(category)
+        # Check for errors in the pipeline response
+        if "error" in results:
+            return jsonify({"error": results["error"]}), 500
+
+        # Extract final prediction and additional info
+        final_prediction = results.get("final_prediction", {})
+        additional_info = results.get("additional_info", {})
 
         # Return the result
         return jsonify({
-            "category": category,
-            "recommendation": recommendation
+            "prediction": final_prediction.get("prediction_text", "Unknown"),
+            "probability": final_prediction.get("probability", None),
+            "risk_level": additional_info.get("risk_level", "Unknown"),
+            "recommendation": additional_info.get("recommendation", "No recommendation available"),
+            "confidence": additional_info.get("confidence", "Unknown"),
+            "bp_category": additional_info.get("bp_category", "Unknown")  # Add this line
         })
     except Exception as e:
         logging.error(f"Error during prediction: {e}")

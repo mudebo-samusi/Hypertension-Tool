@@ -1,60 +1,90 @@
-# enable TLS client.tls_set(tls_version=mqtt.client.ssl.PROTOCOL_TLS)
-#
-# Copyright 2021 HiveMQ GmbH
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
 import time
 import paho.mqtt.client as paho
 from paho import mqtt
 
-# setting callbacks for different events to see if it works, print the message etc.
+# MQTT Configuration from the provided details
+mqtt_server = "mqtt.koinsightug.com"
+broker_username = "gkfiqxkh"
+broker_password = "wtc48z8dSovj"
+broker_port = 1883
+client_id = "HealthMonitor_001"
+health_topic = "healthmon/data"
+status_topic = "healthmon/status"
+notification_topic = "healthmon/notifications"
+
+# Callback for when the client receives a CONNACK response from the server
 def on_connect(client, userdata, flags, rc, properties=None):
-    print("CONNACK received with code %s." % rc)
+    print(f"Connected with result code {rc}")
+    
+    if rc == 0:
+        print("Successfully connected to broker!")
+        # Subscribe to all required topics
+        client.subscribe(health_topic, qos=1)
+        client.subscribe(status_topic, qos=1)
+        print(f"Subscribed to: {health_topic}")
+        print(f"Subscribed to: {status_topic}")
+    else:
+        print(f"Failed to connect. Return code: {rc}")
 
-# with this callback you can see if your publish was successful
+# Callback when a message is published
 def on_publish(client, userdata, mid, properties=None):
-    print("mid: " + str(mid))
+    print(f"Message published. Message ID: {mid}")
 
-# print which topic was subscribed to
+# Callback when a subscription is confirmed
 def on_subscribe(client, userdata, mid, granted_qos, properties=None):
-    print("Subscribed: " + str(mid) + " " + str(granted_qos))
+    print(f"Subscription confirmed. Message ID: {mid}, QoS: {granted_qos}")
 
-# print message, useful for checking if it was successful
+# Callback when a message is received
 def on_message(client, userdata, msg):
-    print(msg.topic + " " + str(msg.qos) + " " + str(msg.payload))
+    print(f"Received message on topic {msg.topic}: {msg.payload.decode()}")
+    
+    # Example of how to process different topics
+    if msg.topic == health_topic:
+        process_health_data(msg.payload.decode())
+    elif msg.topic == status_topic:
+        process_status_update(msg.payload.decode())
 
-# using MQTT version 5 here, for 3.1.1: MQTTv311, 3.1: MQTTv31
-# userdata is user defined data of any type, updated by user_data_set()
-# client_id is the given name of the client
-client = paho.Client(client_id="", userdata=None, protocol=paho.MQTTv5)
+# Process health data (example function)
+def process_health_data(data):
+    print(f"Processing health data: {data}")
+    # Add your health data processing logic here
+
+# Process status updates (example function)
+def process_status_update(status):
+    print(f"Processing status update: {status}")
+    # Add your status update processing logic here
+
+# Function to send notifications
+def send_notification(message):
+    client.publish(notification_topic, message, qos=1)
+    print(f"Notification sent: {message}")
+
+# Create MQTT client instance with MQTT v5
+client = paho.Client(client_id=client_id, userdata=None, protocol=paho.MQTTv5)
+
+# Set callbacks
 client.on_connect = on_connect
-
-# No TLS needed for public broker
-# Connect to HiveMQ public broker
-client.connect("broker.hivemq.com", 1883)
-
-# setting callbacks, use separate functions like above for better visibility
 client.on_subscribe = on_subscribe
 client.on_message = on_message
 client.on_publish = on_publish
 
-# subscribe to all topics of encyclopedia by using the wildcard "#"
-client.subscribe("derrick/healthmon//data", qos=1)
+# Set credentials
+client.username_pw_set(broker_username, broker_password)
 
-# a single publish, this can also be done in loops, etc.
-client.publish("Data_Stream/temperature", payload="hot", qos=1)
-
-# loop_forever for simplicity, here you need to stop the loop manually
-# you can also use loop_start and loop_stop
-client.loop_forever()
+# Connect to broker
+try:
+    print(f"Connecting to {mqtt_server} on port {broker_port}...")
+    client.connect(mqtt_server, broker_port)
+    
+    # Example of sending a notification after connecting
+    # Uncomment to test notifications:
+    # client.loop_start()
+    # time.sleep(2)  # Wait for connection to establish
+    # send_notification("Health Monitor client started and connected")
+    
+    # Start the loop to process callbacks
+    print("Starting message loop...")
+    client.loop_forever()
+    
+except Exception as e:
+    print(f"Connection failed: {e}")
