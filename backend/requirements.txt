@@ -65,3 +65,5 @@ flask_bcrypt
 flask_login
 flask_jwt_extended
 flask_mail
+pflask-socketio
+eventlet
