@@ -16,14 +16,22 @@ const History = () => {
           navigate('/login');
           return;
         }
+        
+        // Add a debug log to check the token
+        console.log("Token being used:", localStorage.getItem('access_token'));
+        
         const data = await api.getReadings();
-        setReadings(data);
+        setReadings(data.readings || []);
         setError("");
       } catch (err) {
         console.error('Error fetching readings:', err);
         const errorMessage = err.msg || err.message || "Failed to fetch readings.";
         setError(errorMessage);
-        if (errorMessage.includes('login')) {
+        
+        if (errorMessage.toLowerCase().includes('token') || 
+            errorMessage.toLowerCase().includes('login') ||
+            errorMessage.toLowerCase().includes('subject')) {
+          localStorage.removeItem('access_token');
           navigate('/login');
         }
       }

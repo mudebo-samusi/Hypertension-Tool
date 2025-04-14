@@ -1,6 +1,6 @@
 import React from "react";
 import { useState } from "react";
-import axios from "axios";
+import api from "../services/api";
 
 const BPMonitor = () => {
   const [systolic, setSystolic] = useState("");
@@ -12,17 +12,24 @@ const BPMonitor = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    const accessToken = localStorage.getItem("access_token");
     try {
-      const response = await axios.post(
-        "http://127.0.0.1:5000/predict",
-        { systolic, diastolic, heart_rate: heartRate },
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-      );
-      setResult(response.data);
+      // Create the reading data object
+      const readingData = {
+        systolic: Number(systolic),
+        diastolic: Number(diastolic),
+        heart_rate: Number(heartRate)
+      };
+
+      // Make both API calls using our api service
+      const [predictionResponse] = await Promise.all([
+        api.post("/predict", readingData)
+      ]);
+
+      setResult(predictionResponse);
       setError("");
     } catch (err) {
-      setError(err.response?.data?.error || "An error occurred.");
+      console.error("Error submitting data:", err);
+      setError(err.msg || err.message || "An error occurred.");
     }
   };
 
@@ -75,10 +82,29 @@ const BPMonitor = () => {
         </button>
       </form>
       {result && (
-        <div className="mt-8">
-          <h3 className="text-xl font-semibold mb-4">Result</h3>
-          <p className="mb-2"><span className="font-medium">Category:</span> {result.category}</p>
-          <p className="mb-2"><span className="font-medium">Recommendation:</span> {result.recommendation}</p>
+        <div className="mt-8 p-4 bg-white shadow rounded-lg">
+          <h3 className="text-xl font-semibold mb-4">Prediction Results</h3>
+          <div className="space-y-2">
+            <p><span className="font-medium">Prediction:</span> {result.prediction}</p>
+            <p><span className="font-medium">Risk Level:</span> 
+              <span className={`ml-2 px-2 py-1 rounded ${
+                result.risk_level === 'High' ? 'bg-red-100 text-red-800' :
+                result.risk_level === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
+                'bg-green-100 text-green-800'
+              }`}>
+                {result.risk_level}
+              </span>
+            </p>
+            <p><span className="font-medium">Confidence:</span> {(result.probability * 100).toFixed(2)}%</p>
+            <div className="mt-4">
+              <p className="font-medium">Recommendation:</p>
+              <p className="mt-1 p-3 bg-blue-50 text-blue-800 rounded">{result.recommendation}</p>
+            </div>
+            <div className="mt-4">
+              <p className="font-medium">Category:</p>
+              <p className="mt-1 p-3 bg-violet-50 text-green-500 rounded">{result.bp_category}</p>
+            </div>
+          </div>
         </div>
       )}
     </div>

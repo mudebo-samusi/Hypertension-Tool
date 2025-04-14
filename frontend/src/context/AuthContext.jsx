@@ -14,10 +14,32 @@ export const AuthProvider = ({ children }) => {
     return savedUser ? JSON.parse(savedUser) : null;
   });
 
-  const login = (userData) => {
-    setUser(userData);
-    localStorage.setItem('user', JSON.stringify(userData));
-    navigate('/'); // Redirect to home page after login
+  const login = async (username, password) => {
+    try {
+      if (!username || !password) {
+        throw new Error('Username and password are required');
+      }
+      
+      const response = await api.login(username, password);
+      
+      // Store user data in state and localStorage
+      setUser(response.user);
+      localStorage.setItem('user', JSON.stringify(response.user));
+      
+      // Store access token if it exists
+      if (response.access_token) {
+        localStorage.setItem('access_token', response.access_token);
+      }
+      
+      navigate('/'); // Redirect to home page after login
+      return { success: true };
+    } catch (error) {
+      console.error('Login failed:', error);
+      return { 
+        success: false, 
+        error: error.response?.data?.error || error.message || 'Login failed'
+      };
+    }
   };
 
   const logout = () => {
@@ -29,8 +51,10 @@ export const AuthProvider = ({ children }) => {
 
   const register = async (userData) => {
     try {
-      const response = await api.post('/register', userData);
-      if (response.status >= 200 && response.status < 300) {
+      const response = await api.register(userData);
+      if (response.access_token) {
+        setUser(response.user);
+        localStorage.setItem('user', JSON.stringify(response.user));
         return { success: true };
       }
       return { success: false, error: 'Registration failed' };
