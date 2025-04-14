@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify, render_template_string
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
-import datetime  # Change this line to correctly import datetime
+import datetime
 from flask_bcrypt import Bcrypt
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
@@ -14,6 +14,11 @@ import logging
 from pipeline import HypertensionPipeline
 import secrets
 import os
+import threading
+import json
+from flask_socketio import SocketIO
+# Import the MQTT client module
+import mqtt_client
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -26,6 +31,9 @@ app.config["MAIL_USE_TLS"] = True
 app.config["MAIL_USERNAME"] = "your-email@gmail.com"
 app.config["MAIL_PASSWORD"] = "your-email-password"
 app.config["MAIL_DEFAULT_SENDER"] = "your-email@gmail.com"
+
+# Add SocketIO for real-time communication with frontend
+socketio = SocketIO(app, cors_allowed_origins=["http://localhost:5173", "http://172.30.64.1:5173"])
 
 # Update CORS configuration
 CORS(app, resources={
@@ -65,6 +73,94 @@ def unauthorized_callback(error_string):
         'msg': 'Missing Authorization header',
         'error': error_string
     }), 401
+
+# Handler for health data received from MQTT
+def handle_mqtt_health_data(data):
+    try:
+        logging.info(f"Received health data from MQTT: {data}")
+        
+        # Extract BP data
+        systolic = data.get("systolic")
+        diastolic = data.get("diastolic")
+        heart_rate = data.get("heart_rate")
+        user_id = data.get("user_id")  # Optional: if user ID is provided in MQTT message
+        
+        if not all([systolic, diastolic, heart_rate]):
+            logging.error("Missing required BP data fields")
+            return
+            
+        # Send to frontend via Socket.IO
+        socketio.emit('new_bp_reading', {
+            'systolic': systolic, 
+            'diastolic': diastolic, 
+            'heart_rate': heart_rate
+        })
+        
+        # Save to database if user_id is provided
+        if user_id:
+            try:
+                save_reading_to_db(user_id, systolic, diastolic, heart_rate)
+                logging.info(f"Saved BP reading for user {user_id}")
+            except Exception as e:
+                logging.error(f"Error saving reading to database: {e}")
+        
+        # Process prediction
+        try:
+            prediction_result = process_bp_prediction(systolic, diastolic, heart_rate)
+            
+            # Send prediction results to frontend via Socket.IO
+            socketio.emit('prediction_result', prediction_result)
+            
+            # Send prediction results to MQTT notification topic
+            mqtt_client.send_prediction_result(prediction_result)
+            
+        except Exception as e:
+            logging.error(f"Error processing prediction: {e}")
+            
+    except Exception as e:
+        logging.error(f"Error handling MQTT health data: {e}")
+
+# Helper function to save BP reading to database
+def save_reading_to_db(user_id, systolic, diastolic, heart_rate):
+    new_reading = BPReading(
+        systolic=systolic,
+        diastolic=diastolic,
+        heart_rate=heart_rate,
+        user_id=user_id,
+    )
+    db.session.add(new_reading)
+    db.session.commit()
+
+# Helper function to process BP prediction
+def process_bp_prediction(systolic, diastolic, heart_rate):
+    # Prepare input for the pipeline
+    input_data = {
+        "Systolic_BP": systolic,
+        "Diastolic_BP": diastolic,
+        "Heart_Rate": heart_rate
+    }
+    
+    # Use the pipeline for prediction
+    pipeline = HypertensionPipeline()
+    results = pipeline.predict(input_data)
+    
+    # Check for errors
+    if "error" in results:
+        return {"error": results["error"]}
+    
+    # Extract final prediction and additional info
+    final_prediction = results.get("final_prediction", {})
+    additional_info = results.get("additional_info", {})
+    
+    # Return the formatted results
+    return {
+        "prediction": final_prediction.get("prediction_text", "Unknown"),
+        "probability": final_prediction.get("probability", None),
+        "risk_level": additional_info.get("risk_level", "Unknown"),
+        "recommendation": additional_info.get("recommendation", "No recommendation available"),
+        "confidence": additional_info.get("confidence", "Unknown"),
+        "bp_category": additional_info.get("bp_category", "Unknown")
+    }
 
 # Add this endpoint to handle profile updates
 @app.route("/update-profile", methods=["POST"])
@@ -304,7 +400,7 @@ def reset_password():
 
     return jsonify({"message": "Password reset successfully."}), 200
 
-# Save BP reading endpoint
+# Modify Save BP reading endpoint to also send via MQTT
 @app.route("/save-reading", methods=["POST"])
 @jwt_required()
 def save_reading():
@@ -318,16 +414,20 @@ def save_reading():
         return jsonify({"error": "Missing data. Please provide systolic, diastolic, and heart rate."}), 400
 
     # Save the reading
-    new_reading = BPReading(
-        systolic=systolic,
-        diastolic=diastolic,
-        heart_rate=heart_rate,
-        user_id=user_id,
-    )
-    db.session.add(new_reading)
-    db.session.commit()
+    save_reading_to_db(user_id, systolic, diastolic, heart_rate)
 
-    # Removed the notification code for critical BP readings
+    # Notify via MQTT
+    try:
+        mqtt_data = {
+            "systolic": systolic,
+            "diastolic": diastolic,
+            "heart_rate": heart_rate,
+            "user_id": user_id,
+            "source": "web_api"
+        }
+        mqtt_client.send_notification(mqtt_data)
+    except Exception as e:
+        logging.error(f"Error sending MQTT notification: {e}")
 
     return jsonify({"message": "Reading saved successfully."}), 201
 
@@ -378,53 +478,46 @@ def get_readings():
         logging.error(f"Error in get_readings: {str(e)}")
         return jsonify({"msg": "An error occurred while fetching readings", "error": str(e)}), 500
 
-# Prediction endpoint
+# Modify Prediction endpoint to also send results via MQTT
 @app.route("/predict", methods=["POST"])
 def predict():
     try:
         # Get data from the request
         data = request.json
-        Systolic_BP = data.get("systolic")
-        Diastolic_BP = data.get("diastolic")
-        Heart_Rate = data.get("heart_rate")
+        systolic = data.get("systolic")
+        diastolic = data.get("diastolic")
+        heart_rate = data.get("heart_rate")
 
         # Validate input
-        if not all([Systolic_BP, Diastolic_BP, Heart_Rate]):
+        if not all([systolic, diastolic, heart_rate]):
             return jsonify({"error": "Missing data. Please provide systolic, diastolic, and heart rate."}), 400
 
-        # Prepare input for the pipeline
-        input_data = {
-            "Systolic_BP": Systolic_BP,
-            "Diastolic_BP": Diastolic_BP,
-            "Heart_Rate": Heart_Rate
-        }
-        logging.info(f"Input data: {input_data}")
-
-        # Use the pipeline for prediction
-        pipeline = HypertensionPipeline()
-        results = pipeline.predict(input_data)
-        logging.info(f"Prediction results: {results}")
-
-        # Check for errors in the pipeline response
-        if "error" in results:
-            return jsonify({"error": results["error"]}), 500
-
-        # Extract final prediction and additional info
-        final_prediction = results.get("final_prediction", {})
-        additional_info = results.get("additional_info", {})
-
+        # Process prediction
+        prediction_result = process_bp_prediction(systolic, diastolic, heart_rate)
+        
+        # Send prediction to MQTT notification topic
+        try:
+            mqtt_client.send_prediction_result(prediction_result)
+        except Exception as e:
+            logging.error(f"Error sending prediction to MQTT: {e}")
+            
         # Return the result
-        return jsonify({
-            "prediction": final_prediction.get("prediction_text", "Unknown"),
-            "probability": final_prediction.get("probability", None),
-            "risk_level": additional_info.get("risk_level", "Unknown"),
-            "recommendation": additional_info.get("recommendation", "No recommendation available"),
-            "confidence": additional_info.get("confidence", "Unknown"),
-            "bp_category": additional_info.get("bp_category", "Unknown")  # Add this line
-        })
+        return jsonify(prediction_result)
+        
     except Exception as e:
         logging.error(f"Error during prediction: {e}")
         return jsonify({"error": str(e)}), 500
-# Run the Flask app
+
+# Initialize and start MQTT client when Flask app starts
+def start_mqtt():
+    mqtt_client.start_mqtt_client(
+        health_callback=handle_mqtt_health_data,
+        prediction_callback=None  # We'll handle predictions directly
+    )
+
+# Start MQTT client in a thread when the Flask app starts
+threading.Thread(target=start_mqtt, daemon=True).start()
+
+# Run the Flask app with SocketIO
 if __name__ == "__main__":
-    app.run(debug=True)
+    socketio.run(app, debug=True, allow_unsafe_werkzeug=True)
