@@ -1,5 +1,4 @@
 import React, { useState, useContext } from "react";
-import api from "../services/api";
 import AuthContext from "../context/AuthContext";
 
 const Login = () => {
@@ -10,12 +9,16 @@ const Login = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setError(""); // Clear previous errors
+    
     try {
-      const data = await api.login(username, password);
-      login(data.user); // Use the login function from context
-      setError("");
+      const result = await login(username, password);
+      
+      if (!result.success) {
+        setError(result.error || "Login failed");
+      }
     } catch (err) {
-      setError(err.message || "An error occurred.");
+      setError(err.message || "An unexpected error occurred.");
     }
   };
 
