@@ -19,6 +19,7 @@ import json
 from flask_socketio import SocketIO
 # Import the MQTT client module
 import mqtt_client
+import uuid  # Add import for UUID
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -33,7 +34,10 @@ app.config["MAIL_PASSWORD"] = "your-email-password"
 app.config["MAIL_DEFAULT_SENDER"] = "your-email@gmail.com"
 
 # Add SocketIO for real-time communication with frontend
-socketio = SocketIO(app, cors_allowed_origins=["http://localhost:5173", "http://172.30.64.1:5173"])
+socketio = SocketIO(app, cors_allowed_origins=[
+    "http://localhost:5173", 
+    "http://172.30.64.1:5173"
+])
 
 # Update CORS configuration
 CORS(app, resources={
@@ -79,7 +83,7 @@ def handle_mqtt_health_data(data):
     try:
         logging.info(f"Received health data from MQTT: {data}")
         
-        # Extract BP data
+        # Extract BP data (explicitly ignoring 'map' and 'timestamp' as requested)
         systolic = data.get("systolic")
         diastolic = data.get("diastolic")
         heart_rate = data.get("heart_rate")
@@ -95,24 +99,31 @@ def handle_mqtt_health_data(data):
             'diastolic': diastolic, 
             'heart_rate': heart_rate
         })
+        logging.info(f"Emitted BP reading to frontend: systolic={systolic}, diastolic={diastolic}, heart_rate={heart_rate}")
         
-        # Save to database if user_id is provided
-        if user_id:
-            try:
-                save_reading_to_db(user_id, systolic, diastolic, heart_rate)
-                logging.info(f"Saved BP reading for user {user_id}")
-            except Exception as e:
-                logging.error(f"Error saving reading to database: {e}")
+        # Save to database - wrap in app context to avoid the application context error
+        try:
+            with app.app_context():
+                save_reading_to_db(systolic, diastolic, heart_rate, user_id)
+                if user_id:
+                    logging.info(f"Saved BP reading for user {user_id}")
+                else:
+                    logging.info(f"Saved anonymous BP reading")
+        except Exception as e:
+            logging.error(f"Error saving reading to database: {e}")
         
         # Process prediction
         try:
             prediction_result = process_bp_prediction(systolic, diastolic, heart_rate)
+            logging.info(f"Generated prediction result: {prediction_result}")
             
             # Send prediction results to frontend via Socket.IO
             socketio.emit('prediction_result', prediction_result)
+            logging.info("Prediction result sent to frontend via Socket.IO")
             
             # Send prediction results to MQTT notification topic
             mqtt_client.send_prediction_result(prediction_result)
+            logging.info("Prediction result sent to MQTT notification topic")
             
         except Exception as e:
             logging.error(f"Error processing prediction: {e}")
@@ -121,7 +132,15 @@ def handle_mqtt_health_data(data):
         logging.error(f"Error handling MQTT health data: {e}")
 
 # Helper function to save BP reading to database
-def save_reading_to_db(user_id, systolic, diastolic, heart_rate):
+def save_reading_to_db(systolic, diastolic, heart_rate, user_id=None):
+    # Generate a random numeric ID from UUID if user_id is not provided
+    if user_id is None:
+        # Generate random UUID and convert to integer by removing dashes and using only a portion
+        random_uuid = uuid.uuid4()
+        # Use the integer hash of the UUID as a substitute for user_id
+        user_id = abs(hash(str(random_uuid))) % (10 ** 10)  # Keep it to 10 digits
+        logging.info(f"Generated random user_id: {user_id} for anonymous reading")
+    
     new_reading = BPReading(
         systolic=systolic,
         diastolic=diastolic,
@@ -207,7 +226,7 @@ class BPReading(db.Model):
     diastolic = db.Column(db.Float, nullable=False)
     heart_rate = db.Column(db.Float, nullable=False)
     timestamp = db.Column(db.DateTime, nullable=False, default=db.func.current_timestamp())
-    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)  # Changed to nullable=True
 
 # Initialize database
 with app.app_context():
@@ -413,8 +432,8 @@ def save_reading():
     if not all([systolic, diastolic, heart_rate]):
         return jsonify({"error": "Missing data. Please provide systolic, diastolic, and heart rate."}), 400
 
-    # Save the reading
-    save_reading_to_db(user_id, systolic, diastolic, heart_rate)
+    # Save the reading with updated function signature
+    save_reading_to_db(systolic, diastolic, heart_rate, user_id)
 
     # Notify via MQTT
     try:
@@ -443,25 +462,12 @@ def get_treatment_recommendation(category):
 
 # Get historical readings endpoint
 @app.route("/get-readings", methods=["GET"])
-@jwt_required()
 def get_readings():
     try:
-        logging.debug("Entered get_readings endpoint")
-        user_id = get_jwt_identity()
-        logging.debug(f"JWT identity: {user_id}")
+        logging.debug("Entered get-readings endpoint")
         
-        if not user_id:
-            logging.error("Invalid or missing authentication token")
-            return jsonify({"msg": "Invalid or missing authentication token"}), 401
-
-        user = User.query.get(user_id)
-        if not user:
-            logging.error(f"User with ID {user_id} not found")
-            return jsonify({"msg": "User not found"}), 404
-
-        readings = BPReading.query.filter_by(user_id=user_id)\
-                         .order_by(BPReading.timestamp.desc())\
-                         .all()
+        # Fetch all readings without filtering by user_id
+        readings = BPReading.query.order_by(BPReading.timestamp.desc()).all()
         
         readings_data = []
         for reading in readings:
@@ -469,13 +475,14 @@ def get_readings():
                 "systolic": float(reading.systolic),
                 "diastolic": float(reading.diastolic),
                 "heart_rate": float(reading.heart_rate),
-                "timestamp": reading.timestamp.isoformat() if reading.timestamp else None
+                "timestamp": reading.timestamp.isoformat() if reading.timestamp else None,
+                "user_id": reading.user_id  # Include user_id in the response
             })
 
         return jsonify(readings_data), 200
 
     except Exception as e:
-        logging.error(f"Error in get_readings: {str(e)}")
+        logging.error(f"Error in get-readings: {str(e)}")
         return jsonify({"msg": "An error occurred while fetching readings", "error": str(e)}), 500
 
 # Modify Prediction endpoint to also send results via MQTT
