@@ -12,14 +12,7 @@ const History = () => {
   useEffect(() => {
     const fetchReadings = async () => {
       try {
-        if (!localStorage.getItem('access_token')) {
-          navigate('/login');
-          return;
-        }
-        
-        // Add a debug log to check the token
-        console.log("Token being used:", localStorage.getItem('access_token'));
-        
+        // Remove token checking - let API service handle authentication
         const data = await api.getReadings();
         setReadings(data.readings || []);
         setError("");
@@ -28,10 +21,8 @@ const History = () => {
         const errorMessage = err.msg || err.message || "Failed to fetch readings.";
         setError(errorMessage);
         
-        if (errorMessage.toLowerCase().includes('token') || 
-            errorMessage.toLowerCase().includes('login') ||
-            errorMessage.toLowerCase().includes('subject')) {
-          localStorage.removeItem('access_token');
+        // Let API service handle authentication redirects
+        if (err.authError) {
           navigate('/login');
         }
       }
