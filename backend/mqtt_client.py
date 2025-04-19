@@ -1,183 +1,271 @@
 import time
-import paho.mqtt.client as paho
 import json
 import threading
 import logging
+import paho.mqtt.client as paho
+import uuid
+import socket
 
 # Configure logging
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('mqtt_client')
 
-# MQTT Configuration
-mqtt_server = "mqtt.koinsightug.com"
-broker_username = "gkfiqxkh"
-broker_password = "wtc48z8dSovj"
-broker_port = 1883
-client_id = "HealthMonitor_001"
-health_topic = "healthmon/data"
-status_topic = "healthmon/status"
-notification_topic = "healthmon/notifications"
+class MqttClient:
+    def __init__(self, server, port, username, password, client_id, topics, keepalive=60):
+        self.server = server
+        self.port = port
+        self.username = username
+        self.password = password
+        # Generate a unique client ID using the base ID + hostname + uuid
+        self.client_id = f"{client_id}_{socket.gethostname()}_{uuid.uuid4().hex[:8]}"
+        self.topics = topics
+        self.keepalive = keepalive
+        self.client = None
+        self.last_message_received_time = time.time()
+        self.health_data_handler = None
+        self.prediction_handler = None
+        self.connected = False
+        self.reconnect_count = 0
+        self.max_reconnect = 10
 
-# Global client variable
-client = None
+    def initialize_client(self):
+        # Use clean_start=True instead of clean_session for MQTT v5
+        self.client = paho.Client(client_id=self.client_id, protocol=paho.MQTTv5)
+        # Set clean start property for MQTT v5
+        self.client.clean_start = True
+        self.client.username_pw_set(self.username, self.password)
+        
+        # Configure client with additional settings
+        self.client.on_connect = self.on_connect
+        self.client.on_disconnect = self.on_disconnect
+        self.client.on_message = self.on_message
+        self.client.on_publish = self.on_publish
+        self.client.on_subscribe = self.on_subscribe
+        
+        # Set up a will message to notify if client disconnects unexpectedly
+        will_msg = json.dumps({"status": "offline", "client_id": self.client_id})
+        self.client.will_set(f"{self.topics['status']}/lwt", will_msg, qos=1, retain=True)
+        
+        # Configure reconnection parameters
+        self.client.reconnect_delay_set(min_delay=5, max_delay=120)
 
-# Timestamp of the last message (for monitoring)
-last_message_received_time = time.time()
+    def on_connect(self, client, userdata, flags, rc, properties=None):
+        if rc == 0:
+            logger.info(f"Connected to MQTT broker with client ID: {self.client_id}")
+            self.connected = True
+            self.reconnect_count = 0
+            
+            # Publish online status
+            try:
+                status_msg = json.dumps({"status": "online", "client_id": self.client_id})
+                client.publish(f"{self.topics['status']}/presence", status_msg, qos=1, retain=True)
+            except Exception as e:
+                logger.error(f"Failed to publish status message: {e}")
+            
+            # Subscribe to topics
+            for topic_name, topic_path in self.topics.items():
+                client.subscribe(topic_path, qos=1)
+                logger.info(f"Subscribed to topic: {topic_path}")
+        else:
+            error_message = {
+                1: "Connection refused - incorrect protocol version",
+                2: "Connection refused - invalid client identifier",
+                3: "Connection refused - server unavailable",
+                4: "Connection refused - bad username or password",
+                5: "Connection refused - not authorised",
+                6: "Connection refused - not yet available",
+                7: "Connection refused - server unavailable"
+            }.get(rc, f"Unknown error code: {rc}")
+            
+            logger.error(f"Failed to connect to MQTT broker. {error_message}")
+            self.connected = False
 
-# Callback handlers (to be set by the Flask app or caller)
-health_data_handler = None
-prediction_handler = None
+    def on_disconnect(self, client, userdata, rc, properties=None):
+        self.connected = False
+        if rc != 0:
+            logger.warning(f"Unexpected disconnection. Return code: {rc}")
+            if rc == 7:
+                logger.warning("Not authorized. This could be due to multiple clients using same ID.")
+                # Regenerate client ID
+                self.client_id = f"{self.client_id.split('_')[0]}_{socket.gethostname()}_{uuid.uuid4().hex[:8]}"
+                logger.info(f"Generated new client ID: {self.client_id}")
+                # Reinitialize client with new ID
+                self.initialize_client()
+            elif rc == paho.MQTT_ERR_CONN_LOST:
+                logger.warning("Connection lost. Attempting to reconnect...")
+            elif rc == paho.MQTT_ERR_NO_CONN:
+                logger.warning("No connection. Retrying...")
+        else:
+            logger.info("Disconnected gracefully.")
+        
+        # Attempt to reconnect - only if unexpected disconnection
+        if rc != 0 and self.reconnect_count < self.max_reconnect:
+            self.reconnect_count += 1
+            try:
+                logger.info(f"Attempting to reconnect (attempt {self.reconnect_count} of {self.max_reconnect})...")
+                time.sleep(min(self.reconnect_count * 2, 30))  # Exponential backoff
+                client.reconnect()
+            except Exception as e:
+                logger.error(f"Reconnection failed: {e}")
 
-# Callback when the client connects
-def on_connect(client, userdata, flags, rc, properties=None):
-    logger.info(f"Connected with result code {rc}")
-    if rc == 0:
-        logger.info("Successfully connected to broker!")
-        # Subscribe to topics with QoS 1
-        client.subscribe(health_topic, qos=1)
-        client.subscribe(status_topic, qos=1)
-        logger.info(f"Subscribed to: {health_topic}")
-        logger.info(f"Subscribed to: {status_topic}")
-    else:
-        logger.error(f"Failed to connect. Return code: {rc}")
-
-# Callback when the client disconnects
-def on_disconnect(client, userdata, rc, properties=None):
-    # rc will be 0 if the disconnect was intentional
-    if rc != 0:
-        logger.warning(f"Unexpected disconnection. Return code: {rc}")
-    else:
-        logger.info("Client disconnected gracefully.")
-
-# Callback when a message is published
-def on_publish(client, userdata, mid, properties=None):
-    logger.info(f"Message published. Message ID: {mid}")
-
-# Callback when a subscription is acknowledged
-def on_subscribe(client, userdata, mid, granted_qos, properties=None):
-    logger.info(f"Subscription confirmed. Message ID: {mid}, QoS: {granted_qos}")
-
-# Callback when a message is received
-def on_message(client, userdata, msg):
-    global last_message_received_time
-    last_message_received_time = time.time()  # update timestamp for monitoring
-    payload_text = msg.payload.decode()
-    logger.info(f"Received message on topic {msg.topic}: {payload_text}")
-
-    # Optionally log at debug level depending on the topic
-    if msg.topic == health_topic:
-        logger.debug(f"Health topic data: {payload_text}")
-    elif msg.topic == status_topic:
-        logger.debug(f"Status topic data: {payload_text}")
-    elif msg.topic == notification_topic:
-        logger.debug(f"Notification topic data: {payload_text}")
-
-    # Process messages based on topic
-    if msg.topic == health_topic and health_data_handler:
+    def on_message(self, client, userdata, msg):
+        self.last_message_received_time = time.time()
+        payload_text = msg.payload.decode()
+        logger.info(f"Message received on {msg.topic}: {payload_text}")
         try:
-            data = json.loads(payload_text)
-            health_data_handler(data)
+            if msg.topic == self.topics['health'] and self.health_data_handler:
+                self.health_data_handler(json.loads(payload_text))
+            elif msg.topic == self.topics['status']:
+                self.process_status_update(payload_text)
         except json.JSONDecodeError:
-            logger.error(f"Failed to parse JSON from message: {payload_text}")
+            logger.error(f"Invalid JSON payload: {payload_text}")
         except Exception as e:
-            logger.error(f"Error processing health data: {e}")
-    elif msg.topic == status_topic:
-        process_status_update(payload_text)
-    # Optionally, add handling for prediction messages if needed
+            logger.error(f"Error processing message: {e}")
 
-# Example function to process status updates
-def process_status_update(status):
-    logger.info(f"Processing status update: {status}")
-    # Add custom status processing logic here
+    def on_publish(self, client, userdata, mid, properties=None):
+        logger.info(f"Message published. ID: {mid}")
 
-# Function to send a notification via MQTT
-def send_notification(message):
-    if client and client.is_connected():
-        if isinstance(message, dict):
-            message = json.dumps(message)
-        client.publish(notification_topic, message, qos=1)
-        logger.info(f"Notification sent: {message}")
-    else:
-        logger.error("Cannot send notification: MQTT client not connected")
+    def on_subscribe(self, client, userdata, mid, granted_qos, properties=None):
+        logger.info(f"Subscription confirmed. ID: {mid}, QoS: {granted_qos}")
 
-# Function to send prediction results via MQTT
-def send_prediction_result(prediction_data):
-    if client and client.is_connected():
+    def process_status_update(self, status):
+        logger.info(f"Processing status update: {status}")
+
+    def send_message(self, topic, message):
         try:
-            message = json.dumps(prediction_data)
-            client.publish(notification_topic, message, qos=1)
-            logger.info(f"Prediction result sent: {message}")
+            if not self.client:
+                logger.error("MQTT client not initialized")
+                return False
+                
+            if not self.connected:
+                logger.warning("MQTT client not connected, attempting to initialize")
+                self.initialize_client()
+                return False
+                
+            if isinstance(message, dict):
+                message = json.dumps(message)
+            result = self.client.publish(topic, message, qos=1)
+            if result.rc == 0:
+                logger.info(f"Message sent to {topic}: {message}")
+                return True
+            else:
+                logger.error(f"Failed to send message. Error code: {result.rc}")
+                return False
         except Exception as e:
-            logger.error(f"Error sending prediction result: {e}")
-    else:
-        logger.error("Cannot send prediction: MQTT client not connected")
+            logger.error(f"Exception while sending message: {e}")
+            return False
 
-# Monitor message reception and log if none received within the interval
-def monitor_message_reception(interval=30):
-    def monitor():
-        global last_message_received_time
-        while True:
-            time_since_last = time.time() - last_message_received_time
-            if time_since_last > interval:
-                logger.warning(f"No messages received in the last {interval} seconds.")
-            time.sleep(interval)
-    thread = threading.Thread(target=monitor, daemon=True)
-    thread.start()
+    def send_notification(self, data):
+        """Send a notification to the notifications topic"""
+        if isinstance(data, dict):
+            data["timestamp"] = time.time()
+            data["type"] = "notification"
+        return self.send_message(self.topics.get('notifications', 'healthmon/notifications'), data)
+    
+    def send_prediction_result(self, prediction_data):
+        """Send prediction results to the notifications topic"""
+        if isinstance(prediction_data, dict):
+            prediction_data["timestamp"] = time.time()
+            prediction_data["type"] = "prediction"
+        return self.send_message(self.topics.get('notifications', 'healthmon/notifications'), prediction_data)
 
-# Initialize MQTT client and assign callbacks and credentials
-def initialize_mqtt_client(health_callback=None, prediction_callback=None):
-    global client, health_data_handler, prediction_handler
+    def monitor_connection(self, interval=30):
+        def monitor():
+            while True:
+                time_since_last = time.time() - self.last_message_received_time
+                if time_since_last > interval:
+                    logger.warning(f"No messages received in the last {interval} seconds.")
+                time.sleep(interval)
+        threading.Thread(target=monitor, daemon=True).start()
 
-    # Save callbacks for later use
-    health_data_handler = health_callback
-    prediction_handler = prediction_callback
+    def start(self, health_callback=None, prediction_callback=None):
+        self.health_data_handler = health_callback
+        self.prediction_handler = prediction_callback
+        self.initialize_client()
 
-    # Create the MQTT client with MQTT v5 protocol
-    client = paho.Client(client_id=client_id, userdata=None, protocol=paho.MQTTv5)
+        def mqtt_loop():
+            try:
+                logger.info(f"Connecting to {self.server}:{self.port} with keepalive={self.keepalive}...")
+                self.client.connect(self.server, self.port, keepalive=self.keepalive)
+                self.client.loop_forever(retry_first_connection=True)
+            except Exception as e:
+                logger.error(f"MQTT connection failed: {e}")
+                time.sleep(5)  # Wait before retrying
+                self.start(health_callback, prediction_callback)  # Retry connection
 
-    # Set callbacks
-    client.on_connect = on_connect
-    client.on_disconnect = on_disconnect
-    client.on_subscribe = on_subscribe
-    client.on_message = on_message
-    client.on_publish = on_publish
+        threading.Thread(target=mqtt_loop, daemon=True).start()
+        self.monitor_connection()
 
-    # Set broker credentials
-    client.username_pw_set(broker_username, broker_password)
-
-    # Optionally, set will message (if needed)
-    # client.will_set(topic=notification_topic, payload="Client disconnected unexpectedly", qos=1, retain=False)
-
-    # Configure reconnect delay to avoid tight reconnect loops
-    client.reconnect_delay_set(min_delay=1, max_delay=120)
-
-    return client
-
-# Start MQTT client in its own thread to run the loop_forever
 def start_mqtt_client(health_callback=None, prediction_callback=None):
-    client = initialize_mqtt_client(health_callback, prediction_callback)
+    """Initialize and start the MQTT client with the given callbacks"""
+    global mqtt_client_instance
+    
+    # Create a singleton instance
+    if 'mqtt_client_instance' not in globals() or mqtt_client_instance is None:
+        mqtt_client_instance = MqttClient(
+            server="mqtt.koinsightug.com",
+            port=1883,
+            username="gkfiqxkh",
+            password="wtc48z8dSovj",
+            client_id="HealthMonitor",
+            topics={
+                "health": "healthmon/data",
+                "status": "healthmon/status",
+                "notifications": "healthmon/notifications"
+            },
+            keepalive=120  # Increased keepalive to 120 seconds
+        )
+        mqtt_client_instance.start(health_callback=health_callback, prediction_callback=prediction_callback)
+    return mqtt_client_instance
 
-    def mqtt_loop():
-        try:
-            logger.info(f"Connecting to {mqtt_server} on port {broker_port} with keepalive=60...")
-            client.connect(mqtt_server, broker_port, keepalive=60)
-            # This will block and handle reconnections automatically per reconnect_delay_set()
-            client.loop_forever()
-        except Exception as e:
-            logger.error(f"MQTT connection failed: {e}")
+# Module-level functions to access the singleton instance
+def send_notification(data):
+    """Send notification via the MQTT client singleton instance"""
+    if 'mqtt_client_instance' not in globals() or mqtt_client_instance is None:
+        logger.error("MQTT client is not initialized. Call start_mqtt_client first.")
+        return False
+    return mqtt_client_instance.send_notification(data)
 
-    mqtt_thread = threading.Thread(target=mqtt_loop, daemon=True)
-    mqtt_thread.start()
+def send_prediction_result(prediction_data):
+    """Send prediction results via the MQTT client singleton instance"""
+    if 'mqtt_client_instance' not in globals() or mqtt_client_instance is None:
+        logger.error("MQTT client is not initialized. Call start_mqtt_client first.")
+        return False
+    return mqtt_client_instance.send_prediction_result(prediction_data)
 
-    # Start the thread that monitors message reception
-    monitor_message_reception()
+def send_message(topic, message):
+    """Send a message to a specific topic via the MQTT client singleton instance"""
+    if 'mqtt_client_instance' not in globals() or mqtt_client_instance is None:
+        logger.error("MQTT client is not initialized. Call start_mqtt_client first.")
+        return False
+    return mqtt_client_instance.send_message(topic, message)
 
-    return mqtt_thread
+def get_client_instance():
+    """Get the MQTT client singleton instance"""
+    if 'mqtt_client_instance' not in globals() or mqtt_client_instance is None:
+        logger.warning("MQTT client is not initialized. Returning None.")
+    return mqtt_client_instance
 
-# For standalone testing, start the client
+# Singleton instance
+mqtt_client_instance = None
+
+# Example usage
 if __name__ == "__main__":
-    start_mqtt_client()
+    topics = {
+        "health": "healthmon/data",
+        "status": "healthmon/status",
+        "notifications": "healthmon/notifications"
+    }
+    mqtt_client = MqttClient(
+        server="mqtt.koinsightug.com",
+        port=1883,
+        username="gkfiqxkh",
+        password="wtc48z8dSovj",
+        client_id="HealthMonitor",
+        topics=topics
+    )
+    mqtt_client.start()
     try:
         while True:
             time.sleep(1)
