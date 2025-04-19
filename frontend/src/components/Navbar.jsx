@@ -2,7 +2,8 @@ import React, { useState } from "react";
 import { useContext } from "react";
 import { Link } from "react-router-dom";
 import AuthContext from "../context/AuthContext";
-import logo2 from "../assets/logo2.png"
+import logo2 from "../assets/logo2.png";
+import api from "../services/api";
 
 const Navbar = () => {
   const { user, logout } = useContext(AuthContext);
@@ -10,6 +11,11 @@ const Navbar = () => {
 
   const toggleMenu = () => {
     setIsOpen(!isOpen);
+  };
+
+  const handleLogout = async () => {
+    await api.logout();
+    if (logout) logout();
   };
 
   return (
@@ -51,7 +57,7 @@ const Navbar = () => {
                 <Link className="text-gray-600 hover:text-gray-900" to="/recommendations">Recommendations</Link>
                 <button 
                   className="bg-violet-400 hover:bg-violet-600 text-white px-4 py-2 rounded-full" 
-                  onClick={logout}
+                  onClick={handleLogout}
                 >
                   Logout
                 </button>
@@ -71,13 +77,13 @@ const Navbar = () => {
             <div className="flex flex-col space-y-2">
               <Link className="text-gray-600 hover:text-gray-900 px-2 py-1 rounded-md" to="/profile" onClick={toggleMenu}>Profile</Link>
               <Link className="text-gray-600 hover:text-gray-900 px-2 py-1 rounded-md" to="/history" onClick={toggleMenu}>History</Link>
-              <Link className="text-gray-600 hover:text-gray-900 px-2 py-1 rounded-md" to="/charts" onClick={toggleMenu}>BP Charts</Link>
+              <Link className="text-gray-600 hover:text-gray-900 px-2 py-1 rounded-md" to="/dashboard" onClick={toggleMenu}>Dashboard</Link>
               <Link className="text-gray-600 hover:text-gray-900 px-2 py-1 rounded-md" to="/recommendations" onClick={toggleMenu}>Recommendations</Link>
               <button 
                 className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md text-left"
-                onClick={() => {
+                onClick={async () => {
                   toggleMenu();
-                  logout();
+                  await handleLogout();
                 }}
               >
                 Logout
