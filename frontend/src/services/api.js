@@ -7,20 +7,29 @@ const api = axios.create({
     }
 });
 
+// Module-level variable to cache the token
+let cachedToken = localStorage.getItem('access_token');
+if (cachedToken === "null" || !cachedToken) cachedToken = null;
+
 // Add request interceptor to add token
 api.interceptors.request.use(
     (config) => {
-        // Skip token check for authentication endpoints
-        const noAuthRequired = ['/login', '/register', '/request-password-reset', '/reset-password'].includes(config.url);
+        // Normalize URL for noAuthRequired check
+        const urlPath = config.url?.startsWith('/') ? config.url : `/${config.url}`;
+        const noAuthRequired = ['/login', '/register', '/request-password-reset', '/reset-password', '/get-readings'].includes(urlPath);
         if (noAuthRequired) {
             return config;
         }
-        
-        const token = localStorage.getItem('access_token');
-        if (!token) {
+
+        // Always sync cachedToken with localStorage before each request
+        cachedToken = localStorage.getItem('access_token');
+        if (cachedToken === "null" || !cachedToken || typeof cachedToken !== 'string' || cachedToken.trim() === '') {
+            cachedToken = null;
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('user');
             return Promise.reject(new Error('No access token found'));
         }
-        config.headers.Authorization = `Bearer ${token}`;
+        config.headers.Authorization = `Bearer ${cachedToken}`;
         return config;
     },
     (error) => Promise.reject(error)
@@ -32,6 +41,7 @@ api.interceptors.response.use(
     (error) => {
         // Handle token expiration
         if (error.response?.status === 401) {
+            cachedToken = null;
             localStorage.removeItem('access_token');
             localStorage.removeItem('user');
             window.location.href = '/login?expired=true'; // Redirect with expired flag
@@ -51,6 +61,7 @@ api.login = async (username, password, remember = false) => {
         });
         
         if (response.access_token) {
+            cachedToken = response.access_token;
             localStorage.setItem('access_token', response.access_token);
             localStorage.setItem('user', JSON.stringify(response.user));
             return response;
@@ -66,6 +77,7 @@ api.login = async (username, password, remember = false) => {
 api.register = async (userData) => {
     const response = await api.post('/register', userData);
     if (response.access_token) {
+        cachedToken = response.access_token;
         localStorage.setItem('access_token', response.access_token);
         localStorage.setItem('user', JSON.stringify(response.user)); // Save user data
     }
@@ -74,7 +86,8 @@ api.register = async (userData) => {
 
 // Add a method to check if user is authenticated
 api.isAuthenticated = () => {
-    return localStorage.getItem('access_token') !== null;
+    const token = localStorage.getItem('access_token');
+    return token && token !== "null";
 };
 
 // Add a method to get the current user
@@ -84,7 +97,14 @@ api.getCurrentUser = () => {
 };
 
 // Add logout method
-api.logout = () => {
+api.logout = async () => {
+    try {
+        // Call backend logout endpoint to invalidate token/session
+        await api.post('/logout');
+    } catch (e) {
+        // Ignore errors (e.g., already logged out)
+    }
+    cachedToken = null;
     localStorage.removeItem('access_token');
     localStorage.removeItem('user');
     window.location.href = '/login';
@@ -108,27 +128,14 @@ api.checkTokenValidity = async () => {
     }
 };
 
-// Fix getReadings method to explicitly handle the token
+// Fix getReadings method to use the configured api instance
 api.getReadings = async () => {
     try {
-        // Get the token directly
-        const token = localStorage.getItem('access_token');
-        if (!token) {
-            throw new Error('No access token found');
-        }
-
-        // Make a direct axios call with explicit headers
-        const response = await axios.get(`${api.defaults.baseURL}/get-readings`, {
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token.trim()}`
-            }
-        });
+        // Use the api instance which already has interceptors configured
+        // to handle the authorization token
+        const response = await api.get('/get-readings');
         
-        // Check and log response
-        console.log("Reading response:", response.data);
-        
-        return { readings: Array.isArray(response.data) ? response.data : [] };
+        return { readings: Array.isArray(response) ? response : [] };
     } catch (error) {
         console.error("Error in getReadings:", error);
         
@@ -139,10 +146,15 @@ api.getReadings = async () => {
             console.error("Error response headers:", error.response.headers);
         }
         
+        // Add authentication error flag to help components handle auth errors appropriately
+        if (error.status === 401 || 
+            (error.message && error.message.toLowerCase().includes('token'))) {
+            error.authError = true;
+        }
+        
         throw error;
     }
 };
-
 
 // Add updateProfile method
 api.updateProfile = async (userData) => {
