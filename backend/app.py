@@ -217,6 +217,13 @@ class BPReading(db.Model):
     timestamp = db.Column(db.DateTime, nullable=False, default=db.func.current_timestamp())
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)  # Changed to nullable=True
 
+# Add Review model after other models
+class Review(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    text = db.Column(db.String(500), nullable=False)
+    timestamp = db.Column(db.DateTime, nullable=False, default=db.func.current_timestamp())
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+
 # Initialize database
 with app.app_context():
     db.create_all()
@@ -512,6 +519,49 @@ def predict():
     except Exception as e:
         logging.error(f"Error during prediction: {e}")
         return jsonify({"error": str(e)}), 500
+
+# Add review endpoints
+@app.route("/reviews", methods=["GET"])
+def get_reviews():
+    try:
+        reviews = Review.query.order_by(Review.timestamp.desc()).all()
+        return jsonify([{
+            'id': review.id,
+            'text': review.text,
+            'timestamp': review.timestamp.isoformat(),
+            'user_id': review.user_id
+        } for review in reviews]), 200
+    except Exception as e:
+        logging.error(f"Error fetching reviews: {e}")
+        return jsonify({"error": "Failed to fetch reviews"}), 500
+
+@app.route("/reviews", methods=["POST"])
+@jwt_required()
+def create_review():
+    try:
+        data = request.json
+        user_id = int(get_jwt_identity())
+        
+        if not data or 'text' not in data:
+            return jsonify({"error": "Review text is required"}), 400
+            
+        review = Review(
+            text=data['text'],
+            user_id=user_id
+        )
+        db.session.add(review)
+        db.session.commit()
+        
+        return jsonify({
+            'id': review.id,
+            'text': review.text,
+            'timestamp': review.timestamp.isoformat(),
+            'user_id': review.user_id
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Error creating review: {e}")
+        return jsonify({"error": "Failed to create review"}), 500
 
 # Initialize and start MQTT client when Flask app starts
 def start_mqtt():
