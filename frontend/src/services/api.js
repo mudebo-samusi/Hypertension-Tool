@@ -213,4 +213,27 @@ api.predict = async (readingData) => {
     }
 };
 
+// Add getProfile method with better error handling
+api.getProfile = async () => {
+    try {
+        // Check if the user is authenticated
+        if (!api.isAuthenticated()) {
+            throw new Error('User not authenticated');
+        }
+
+        return await api.get('/profile');
+    } catch (error) {
+        console.error("Error fetching profile:", error);
+        
+        // If the error is a token error (422 or 401), try to logout
+        if (error.response?.status === 422 || error.response?.status === 401) {
+            console.error("Token error detected. Logging out...");
+            // Wait a moment before redirecting to avoid potential redirect loops
+            setTimeout(() => api.logout(), 500);
+        }
+        
+        throw error;
+    }
+};
+
 export default api;
