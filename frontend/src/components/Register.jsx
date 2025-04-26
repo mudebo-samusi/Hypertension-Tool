@@ -7,7 +7,7 @@ function Register() {
     username: '',
     email: '',
     password: '',
-    role: ''  // Added role to initial state
+    role: '',
   });
   const [error, setError] = useState('');
   const navigate = useNavigate();
@@ -34,25 +34,21 @@ function Register() {
         return;
       }
 
-      const response = await api.post('/register', formData);
+      // Use api.register method
+      const response = await api.register(formData);
       
-      // Check if response status is successful (2xx)
-      if (response.status >= 200 && response.status < 300) {
+      // Check the success flag in the response
+      if (response.success) {
+        // Registration successful, navigate to login
         navigate('/login');
       } else {
-        setError('Registration failed. Please try again.');
+        // Server returned a structured error
+        setError(response.message || 'Registration failed. Please try again.');
       }
     } catch (error) {
       console.error('Registration error:', error);
-      if (error.response) {
-        // Handle specific error messages from the server
-        const errorMessage = error.response.data?.message || 'Registration failed. Please try again.';
-        setError(errorMessage);
-      } else if (error.request) {
-        setError('Cannot connect to server. Please check if the server is running.');
-      } else {
-        setError('An error occurred. Please try again.');
-      }
+      // Display error message from the server or a default message
+      setError(error.message || 'Registration failed. Please try again.');
     }
   };
 
@@ -84,6 +80,7 @@ function Register() {
               required
             />
           </div>
+          
           <div>
             <select
               className="w-full px-3 py-2 sm:py-2.5 text-sm sm:text-base border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
