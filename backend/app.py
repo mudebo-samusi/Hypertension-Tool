@@ -33,22 +33,16 @@ app.config["MAIL_USERNAME"] = "your-email@gmail.com"
 app.config["MAIL_PASSWORD"] = "your-email-password"
 app.config["MAIL_DEFAULT_SENDER"] = "your-email@gmail.com"
 
-# Add SocketIO for real-time communication with frontend
-socketio = SocketIO(app, cors_allowed_origins=[
-    "http://localhost:5173", 
-    "http://172.30.64.1:5173"
-])
+# Update SocketIO to allow CORS properly
+socketio = SocketIO(app, cors_allowed_origins=["http://localhost:5173", "http://172.30.64.1:5173"], async_mode='threading')
 
-# Update CORS configuration
-CORS(app, resources={
-    r"/*": {
-        "origins": ["http://localhost:5173", "http://172.30.64.1:5173"], # Update this with your frontend URL
-        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"],
-        "expose_headers": ["Content-Type", "Authorization"],
-        "supports_credentials": True
-    }
-})
+# Improve CORS configuration
+CORS(app, 
+     origins=["http://localhost:5173", "http://172.30.64.1:5173"],
+     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+     allow_headers=["Content-Type", "Authorization"],
+     expose_headers=["Content-Type", "Authorization"],
+     supports_credentials=True)
 
 # Add debug logging
 logging.basicConfig(level=logging.DEBUG)
@@ -188,8 +182,10 @@ def update_profile():
     user_id = get_jwt_identity()
     data = request.json
     logging.info(f"Received data: {data}")
-    username = data.get("username")
+    username = data.get("name")
     email = data.get("email")
+    phone = data.get("phoneNumber")
+    sex = data.get("sex")
     role = data.get("role")
     password = data.get("password")
 
@@ -218,6 +214,7 @@ class User(db.Model, UserMixin):
     email = db.Column(db.String(120), unique=True, nullable=False)  # Add email field
     password = db.Column(db.String(60), nullable=False)
     role = db.Column(db.String(20), nullable=False, default="patient")
+  
 
 # BP Reading model
 class BPReading(db.Model):
@@ -257,14 +254,19 @@ def register():
             return jsonify({"success": False, "message": "Email already exists."}), 400
 
         hashed_password = bcrypt.generate_password_hash(password).decode("utf-8")
-        user = User(username=username, email=email, password=hashed_password, role=role)
+        user = User(
+            username=username, 
+            email=email, 
+            password=hashed_password, 
+            role=role,
+        )
         db.session.add(user)
         db.session.commit()
 
         return jsonify({"success": True, "message": "User registered successfully."}), 201
     except Exception as e:
         db.session.rollback()
-        print(f"Registration error: {str(e)}")  # For debugging
+        logging.error(f"Registration error: {str(e)}")  # Improved error logging
         return jsonify({"success": False, "message": "An error occurred during registration."}), 500
 
 
