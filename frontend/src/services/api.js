@@ -236,4 +236,23 @@ api.getProfile = async () => {
     }
 };
 
+// Add reviews methods before the export
+api.getReviews = async () => {
+    try {
+        return await api.get('/reviews');
+    } catch (error) {
+        console.error("Error fetching reviews:", error);
+        throw error;
+    }
+};
+
+api.createReview = async (text) => {
+    try {
+        return await api.post('/reviews', { text });
+    } catch (error) {
+        console.error("Error creating review:", error);
+        throw error;
+    }
+};
+
 export default api;
