@@ -7,15 +7,15 @@ const Reviews = () => {
   const [newReview, setNewReview] = useState("");
 
   useEffect(() => {
-    api.get("/reviews")
-      .then(response => setReviews(response.data))
+    api.getReviews()
+      .then(response => setReviews(response))
       .catch(error => console.error("Error fetching reviews", error));
   }, []);
 
   const submitReview = async () => {
     try {
-      await api.post("/reviews", { text: newReview });
-      setReviews([...reviews, { text: newReview }]);
+      const response = await api.createReview(newReview);
+      setReviews([response, ...reviews]);
       setNewReview("");
     } catch (error) {
       console.error("Error submitting review", error);
