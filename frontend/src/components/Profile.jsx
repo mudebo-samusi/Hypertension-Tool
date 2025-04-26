@@ -48,7 +48,7 @@ const Profile = () => {
     
     try {
       const token = localStorage.getItem('access_token');
-      await axios.put('http://localhost:5000/api/profile', profileData, {
+      await axios.put('http://localhost:5000/api/update-profile', profileData, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setMessage('Profile updated successfully!');
