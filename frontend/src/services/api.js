@@ -4,7 +4,9 @@ const api = axios.create({
     baseURL: 'http://localhost:5000',
     headers: {
         'Content-Type': 'application/json'
-    }
+    },
+    // Add withCredentials for CORS with credentials
+    withCredentials: true
 });
 
 // Module-level variable to cache the token
@@ -46,6 +48,16 @@ api.interceptors.response.use(
             localStorage.removeItem('user');
             window.location.href = '/login?expired=true'; // Redirect with expired flag
         }
+        
+        // Enhanced error logging for debugging
+        console.error('API Error:', error);
+        if (error.response) {
+            console.error('Response data:', error.response.data);
+            console.error('Response status:', error.response.status);
+        } else if (error.request) {
+            console.error('No response received:', error.request);
+        }
+        
         return Promise.reject(error.response?.data || error);
     }
 );
@@ -73,15 +85,17 @@ api.login = async (username, password, remember = false) => {
     }
 };
 
-// Add register method
+// Fix register method to handle the actual response format
 api.register = async (userData) => {
-    const response = await api.post('/register', userData);
-    if (response.access_token) {
-        cachedToken = response.access_token;
-        localStorage.setItem('access_token', response.access_token);
-        localStorage.setItem('user', JSON.stringify(response.user)); // Save user data
+    try {
+        const response = await api.post('/register', userData);
+        // Backend returns {success: true/false, message: "..."} without tokens
+        // Just return the response and let the component handle navigation
+        return response;
+    } catch (error) {
+        console.error("Registration error details:", error);
+        throw error;
     }
-    return response;
 };
 
 // Add a method to check if user is authenticated
