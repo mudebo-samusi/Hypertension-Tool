@@ -175,36 +175,28 @@ def process_bp_prediction(systolic, diastolic, heart_rate):
         "bp_category": additional_info.get("bp_category", "Unknown")
     }
 
-# Add this endpoint to handle profile updates
-@app.route("/update-profile", methods=["POST"])
+# Add endpoint to get user profile
+@app.route("/profile", methods=["GET"])
 @jwt_required()
-def update_profile():
-    user_id = get_jwt_identity()
-    data = request.json
-    logging.info(f"Received data: {data}")
-    username = data.get("name")
-    email = data.get("email")
-    phone = data.get("phoneNumber")
-    sex = data.get("sex")
-    role = data.get("role")
-    password = data.get("password")
-
+def get_profile():
+    # Convert string ID back to integer
+    user_id = int(get_jwt_identity())
+    
     user = User.query.get(user_id)
     if not user:
         return jsonify({"error": "User not found."}), 404
-
-    if username:
-        user.username = username
-    if email:
-        user.email = email
-    if role:
-        user.role = role
-    if password:
-        user.password = bcrypt.generate_password_hash(password).decode("utf-8")
-
-    db.session.commit()
-
-    return jsonify({"message": "Profile updated successfully."}), 200
+        
+    # Return user profile data
+    profile_data = {
+        "name": user.username,
+        "email": user.email,
+        "role": user.role,
+        # Add other fields you want to include
+        # These can be expanded as your User model grows
+    
+    }
+    
+    return jsonify(profile_data), 200
 
 
 # User model
@@ -307,8 +299,9 @@ def login():
             else:
                 expires_delta = datetime.timedelta(hours=1)  # 1 hour for regular session
                 
+            # Convert user.id to string to fix the "Subject must be a string" error
             access_token = create_access_token(
-                identity=user.id,
+                identity=str(user.id),
                 expires_delta=expires_delta
             )
             
@@ -331,7 +324,8 @@ def login():
 @app.route("/verify-token", methods=["GET"])
 @jwt_required()
 def verify_token():
-    current_user_id = get_jwt_identity()
+    # Convert string ID back to integer
+    current_user_id = int(get_jwt_identity())
     user = User.query.get(current_user_id)
     
     if not user:
@@ -351,7 +345,8 @@ def verify_token():
 @app.route("/protected", methods=["GET"])
 @jwt_required()
 def protected():
-    current_user_id = get_jwt_identity()
+    # Convert string ID back to integer
+    current_user_id = int(get_jwt_identity())
     user = User.query.get(current_user_id)
     
     if not user:
@@ -425,7 +420,8 @@ def reset_password():
 @app.route("/save-reading", methods=["POST"])
 @jwt_required()
 def save_reading():
-    user_id = get_jwt_identity()
+    # Convert string ID back to integer
+    user_id = int(get_jwt_identity())
     data = request.json
     systolic = data.get("systolic")
     diastolic = data.get("diastolic")
