@@ -61,6 +61,7 @@ const Navbar = () => {
                 <Link className="text-gray-600 hover:text-gray-100 font-semibold hover:bg-violet-600 text-lg rounded-xl w-26 h-8 text-center" to="/dashboard">Dashboard</Link>
                 <Link className="text-gray-600 hover:text-gray-100 font-semibold hover:bg-violet-600 text-lg rounded-xl w-42 h-8 text-center" to="/recommendations">Recommendations</Link>
                 <Link className="text-gray-600 hover:text-gray-100 font-semibold hover:bg-violet-600 text-lg rounded-xl w-20 h-8 text-center" to="/chat">Chat</Link>
+                <Link className="text-gray-600 hover:text-gray-100 font-semibold hover:bg-violet-600 text-lg rounded-xl w-32 h-8 text-center" to="/pulse-market">PulseMarket</Link>
                 
                 <hr></hr>
                 <button 
@@ -88,6 +89,7 @@ const Navbar = () => {
               <Link className="text-gray-600 hover:text-gray-900 px-2 py-1 rounded-md" to="/dashboard" onClick={toggleMenu}>Dashboard</Link>
               <Link className="text-gray-600 hover:text-gray-900 px-2 py-1 rounded-md" to="/recommendations" onClick={toggleMenu}>Recommendations</Link>
               <Link className="text-gray-600 hover:text-gray-900 px-2 py-1 rounded-md" to="/chat" onClick={toggleMenu}>Chat</Link>
+              <Link className="text-gray-600 hover:text-gray-900 px-2 py-1 rounded-md" to="/pulse-market" onClick={toggleMenu}>PulseMarket</Link>
               <button 
                 className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md text-left"
                 onClick={async () => {
