@@ -176,7 +176,7 @@ export default function CallSetup() {
         <button 
           onClick={initiateCall}
           disabled={selectedUsers.length === 0}
-          className={`w-full py-3 rounded-lg flex items-center justify-center ${
+          className={`w-64 mx-auto py-3 rounded-lg flex items-center justify-center ${
             selectedUsers.length > 0 
               ? 'bg-violet-600 text-white hover:bg-violet-700' 
               : 'bg-gray-200 text-gray-400 cursor-not-allowed'
