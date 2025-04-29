@@ -35,17 +35,17 @@ const Home = () => {
         className="min-h-screen flex flex-col items-center justify-center px-4 sm:px-6 lg:px-8"
       >
         <div className="max-w-7xl mx-auto text-center">
-        <img src={logo1} alt="Logo" className="rounded-sm w-56 h-48 mb-8 mx-auto" ></img>
+        <img src={logo1} alt="Logo" className="rounded-sm w-56 h-50 mb-8 mx-auto" ></img>
 
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-violet-600 mb-6">
             Remote Hypertension Monitoring Made Simple
           </h1>
-          <p className="text-xl text-gray-900 mb-8 text-balance max-w-3xl mx-auto">
+          <p className="text-xl pt-6 text-gray-900 mb-8 text-balance max-w-3xl mx-auto">
             PulsePal helps you monitor and manage hypertension with AI-powered insights,
             real-time tracking, and professional medical support.
           </p>
 
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+          <div className="flex flex-col sm:flex-row gap-4 justify-center pt-6">
             <button className="bg-violet-600 text-white px-8 py-3 rounded-lg hover:bg-violet-700 transition">
               Get Started
             </button>
