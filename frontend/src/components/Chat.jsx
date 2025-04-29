@@ -86,17 +86,17 @@ export default function Chat() {
               <Phone size={20} />
             </button>
             {showCallOptions && (
-              <div className="absolute right-0 mt-2 bg-white rounded-lg shadow-lg z-10 overflow-hidden">
+              <div className="absolute right-0 mt-2 bg-white rounded-lg shadow-lg z-10 w-46 overflow-hidden">
                 <button 
                   onClick={() => initiateCall('voice')} 
-                  className="flex items-center px-4 py-2 text-gray-700 hover:bg-violet-100 w-full"
+                  className="flex items-center px-4 py-2 text-gray-900 hover:bg-violet-600 hover:text-white w-full"
                 >
                   <Phone size={16} className="mr-2" />
                   <span>Voice Call</span>
                 </button>
                 <button 
                   onClick={() => initiateCall('video')} 
-                  className="flex items-center px-4 py-2 text-gray-700 hover:bg-violet-100 w-full"
+                  className="flex items-center px-4 py-2 text-gray-900 hover:bg-violet-600 hover:text-white w-full"
                 >
                   <Video size={16} className="mr-2" />
                   <span>Video Call</span>
