@@ -24,6 +24,7 @@ import VoiceCall from "./components/VoiceCall";
 import VideoCall from "./components/VideoCall";
 import CallSetup from "./components/CallSetup";
 import PulseMarket from "./components/pulsemarket/PulseMarket";
+import Subscriptions from "./components/Subscriptions";
 
 function App() {
   return (
@@ -50,6 +51,7 @@ function App() {
           <Route path="/voice-call" element={<VoiceCall />} />
           <Route path="/video-call" element={<VideoCall />} />
           <Route path="/pulse-market" element={<PulseMarket />} />
+          <Route path="/subscriptions" element={<Subscriptions />} />
         </Routes>
         <Footer/>
       </AuthProvider>
