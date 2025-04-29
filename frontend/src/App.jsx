@@ -20,16 +20,25 @@ import './App.css';
 import { AuthProvider } from "./context/AuthContext";
 import BPChart from "./components/BPChart";
 import Chat from "./components/Chat";
+import HypertensionAnalytics from "./components/HypertensionAnalytics";
 import VoiceCall from "./components/VoiceCall";
 import VideoCall from "./components/VideoCall";
 import CallSetup from "./components/CallSetup";
 import PulseMarket from "./components/pulsemarket/PulseMarket";
 import Subscriptions from "./components/Subscriptions";
+import { PaymentProvider } from "./components/payments/PaymentContext";
+import { PaymentDashboard } from './components/payments/PaymentDashboard';
+import { PaymentForm } from './components/payments/PaymentForm';
+import { PaymentList } from './components/payments/PaymentList';
+import { PaymentAnalytics } from './components/payments/PaymentAnalytics';
+import AnalyticsDashboard from "./components/AnalyticsDashboard";
+import OrgDashboard from "./components/OrgDashboard";
 
 function App() {
   return (
     <Router>
       <AuthProvider>
+      <PaymentProvider>
         <Navbar/>
         <Routes>
           <Route path="/login" element={<Login />} />
@@ -52,8 +61,17 @@ function App() {
           <Route path="/video-call" element={<VideoCall />} />
           <Route path="/pulse-market" element={<PulseMarket />} />
           <Route path="/subscriptions" element={<Subscriptions />} />
+           {/* Payment System Routes */}
+          <Route path="/payments" element={<PaymentDashboard />} />
+          <Route path="/payments/new" element={<PaymentForm />} />
+          <Route path="/payments/history" element={<PaymentList />} />
+          <Route path="/payments/analytics" element={<PaymentAnalytics />} />
+          <Route path="/AI-analytics" element={<HypertensionAnalytics />} />
+          <Route path="/PulseCare" element={<AnalyticsDashboard />} />
+          <Route path="/PulseMedic" element={<OrgDashboard />} />
         </Routes>
         <Footer/>
+        </PaymentProvider>
       </AuthProvider>
     </Router>
   );
