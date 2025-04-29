@@ -19,7 +19,10 @@ import ResetPassword from "./components/ResetPassword";
 import './App.css';
 import { AuthProvider } from "./context/AuthContext";
 import BPChart from "./components/BPChart";
-
+import Chat from "./components/Chat";
+import VoiceCall from "./components/VoiceCall";
+import VideoCall from "./components/VideoCall";
+import CallSetup from "./components/CallSetup";
 
 function App() {
   return (
@@ -41,6 +44,10 @@ function App() {
           <Route path="/profile" element={<Profile />} />
           <Route path="/request-password-reset" element={<RequestPasswordReset />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/chat" element={<Chat />} />
+          <Route path="/call-setup" element={<CallSetup />} />
+          <Route path="/voice-call" element={<VoiceCall />} />
+          <Route path="/video-call" element={<VideoCall />} />
         </Routes>
         <Footer/>
       </AuthProvider>
