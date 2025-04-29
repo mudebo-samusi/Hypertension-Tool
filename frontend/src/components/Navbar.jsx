@@ -21,9 +21,9 @@ const Navbar = () => {
   return (
     <nav className="bg-white shadow-lg">
       <div className="max-w-6xl mx-auto px-4">
-        <div className="flex justify-between items-center h-16">
+        <div className="flex justify-between items-center h-20">
           <Link className="text-xl font-semibold text-violet-500" to="/">
-            <img src={logo2} alt="Logo" className="rounded-full w-18 h-18 mb-1" ></img>
+            <img src={logo2} alt="Logo" className="rounded-full w-18 h-22 mb-1" ></img>
           </Link>
 
           {/* Mobile menu button */}
@@ -46,17 +46,24 @@ const Navbar = () => {
           <div className="hidden md:flex space-x-4">
             {!user ? (
               <>
-                <Link className="text-gray-600 hover:text-gray-900" to="/login">Login</Link>
-                <Link className="text-gray-600 hover:text-gray-900" to="/register">Register</Link>
+                <Link className="text-gray-100 font-semibold rounded-2xl flex md:items-center h-10 w-18 bg-violet-600 hover:text-gray-100 hover:bg-violet-600" to="/login">
+                  <div className="mx-auto">Login</div>
+                </Link>
+                <Link className="text-gray-100 font-semibold rounded-2xl h-10 w-22 flex md:items-center bg-violet-600 hover:bg-violet-600 hover:text-gray-100" to="/register">
+                  <div className="mx-auto">Register</div>
+                </Link>
               </>
             ) : (
               <>
-                <Link className="text-gray-600 hover:text-gray-900" to="/profile">Profile</Link>
-                <Link className="text-gray-600 hover:text-gray-900" to="/history">History</Link>
-                <Link className="text-gray-600 hover:text-gray-900" to="/dashboard">Dashboard</Link>
-                <Link className="text-gray-600 hover:text-gray-900" to="/recommendations">Recommendations</Link>
+              
+                <Link className="text-gray-600 hover:text-gray-100 font-semibold hover:bg-violet-600 text-lg rounded-xl w-20 h-8 text-center" to="/profile">Profile</Link>
+                <Link className="text-gray-600 hover:text-gray-100 font-semibold hover:bg-violet-600 text-lg rounded-xl w-20 h-8 text-center" to="/history">History</Link>
+                <Link className="text-gray-600 hover:text-gray-100 font-semibold hover:bg-violet-600 text-lg rounded-xl w-26 h-8 text-center" to="/dashboard">Dashboard</Link>
+                <Link className="text-gray-600 hover:text-gray-100 font-semibold hover:bg-violet-600 text-lg rounded-xl w-42 h-8 text-center" to="/recommendations">Recommendations</Link>
+                
+                <hr></hr>
                 <button 
-                  className="bg-violet-400 hover:bg-violet-600 text-white px-4 py-2 rounded-full" 
+                  className="bg-violet-600 hover:bg-violet-600 text-white hover:text-white px-4 py-2 h-10 rounded-xl" 
                   onClick={handleLogout}
                 >
                   Logout
