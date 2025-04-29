@@ -92,6 +92,7 @@ function Register() {
               <option value="" disabled>Select Role</option>
               <option value="Doctor">Doctor</option>
               <option value="Care Taker">Care Taker</option>
+              <option value="Patient">Patient</option>
             </select>
           </div>
           <div>
