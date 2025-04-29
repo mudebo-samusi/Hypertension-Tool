@@ -48,7 +48,13 @@ const Navbar = () => {
     { name: "Profile", path: "/profile" },
     { name: "Recommendations", path: "/recommendations" },
     { name: "PulseMarket", path: "/pulse-market" },
-    { name: "Subscriptions", path: "/subscriptions" }
+    { name: "Subscriptions", path: "/subscriptions" },
+    { name: "PulseCare", path: "/PulseCare" },
+    { name: "PulseMedic", path: "/PulseMedic" },
+    { name: "Make Payments", path: "/payments/new" },
+    { name: "PulsePay Analytics", path: "/payments" },
+    { name: "PulseAI Analytics", path: "/AI-analytics" },
+
   ];
 
   return (
@@ -114,7 +120,7 @@ const Navbar = () => {
                         <Link
                           key={link.path}
                           to={link.path}
-                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-violet-600 hover:text-white"
+                          className="block px-4 py-2 text-lg text-gray-900 hover:bg-violet-600 hover:text-white"
                           onClick={() => setDropdownOpen(false)}
                         >
                           {link.name}
