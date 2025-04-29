@@ -23,6 +23,7 @@ import Chat from "./components/Chat";
 import VoiceCall from "./components/VoiceCall";
 import VideoCall from "./components/VideoCall";
 import CallSetup from "./components/CallSetup";
+import PulseMarket from "./components/pulsemarket/PulseMarket";
 
 function App() {
   return (
@@ -48,6 +49,7 @@ function App() {
           <Route path="/call-setup" element={<CallSetup />} />
           <Route path="/voice-call" element={<VoiceCall />} />
           <Route path="/video-call" element={<VideoCall />} />
+          <Route path="/pulse-market" element={<PulseMarket />} />
         </Routes>
         <Footer/>
       </AuthProvider>
