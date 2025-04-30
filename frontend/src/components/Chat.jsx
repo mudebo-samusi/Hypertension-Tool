@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Send, Phone, Video, Mic, Paperclip, Image, X } from "lucide-react";
+import { Send, Phone, Video, Mic, Paperclip, Image, X, Menu } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import ChatSidebar from "./ChatSidebar";
 
 export default function Chat() {
   const [messages, setMessages] = useState([
@@ -13,6 +14,9 @@ export default function Chat() {
   const endOfMessagesRef = useRef(null);
   const [showCallOptions, setShowCallOptions] = useState(false);
   const navigate = useNavigate();
+  const [selectedChatId, setSelectedChatId] = useState(null);
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
   const scrollToBottom = () => {
     endOfMessagesRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -21,6 +25,14 @@ export default function Chat() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const sendMessage = () => {
     if (input.trim()) {
@@ -64,10 +76,25 @@ export default function Chat() {
     setShowCallOptions(false);
   };
 
-  return (
-    <div className="flex flex-col h-screen max-w-lg mx-auto bg-white shadow-lg rounded-lg overflow-hidden">
+  const handleChatSelect = (chatId) => {
+    setSelectedChatId(chatId);
+    if (isMobile) {
+      setShowSidebar(false);
+    }
+  };
+
+  const ChatContent = () => (
+    <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="bg-violet-600 text-white px-4 py-3 flex items-center justify-between">
+      <div className="bg-violet-600 text-white px-4 py-3 flex items-center max-w-full justify-between rounded-tr-xl">
+        {isMobile && (
+          <button
+            onClick={() => setShowSidebar(true)}
+            className="text-white p-2 rounded-full hover:bg-violet-700 transition"
+          >
+            <Menu size={24} />
+          </button>
+        )}
         <div className="flex items-center">
           <div className="h-10 w-10 rounded-full bg-violet-400 flex items-center justify-center">
             <span className="text-lg font-semibold">User</span>
@@ -112,7 +139,7 @@ export default function Chat() {
           </button>
         </div>
       </div>
-      
+
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
         {messages.map((msg) => (
@@ -193,6 +220,33 @@ export default function Chat() {
           >
             <Send size={18} />
           </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="h-screen w-screen flex items-center justify-center bg-gray-100">
+      <div className="flex h-full w-full max-w-screen-lg bg-white shadow-lg rounded-lg overflow-hidden">
+        {/* Sidebar */}
+        <div className={`${(!isMobile || showSidebar) ? 'block' : 'hidden'} ${isMobile ? 'w-full' : 'w-96'} h-full`}>
+          <ChatSidebar
+            onChatSelect={handleChatSelect}
+            selectedChatId={selectedChatId}
+            isMobile={isMobile}
+            onClose={() => setShowSidebar(false)}
+          />
+        </div>
+
+        {/* Main Chat Area */}
+        <div className={`${(!isMobile || !showSidebar) ? 'flex' : 'hidden'} flex-1 h-full`}>
+          {selectedChatId || !isMobile ? (
+            <ChatContent />
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-gray-500">
+              Select a chat to start messaging
+            </div>
+          )}
         </div>
       </div>
     </div>
