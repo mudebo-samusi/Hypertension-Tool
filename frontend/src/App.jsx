@@ -33,6 +33,8 @@ import { PaymentList } from './components/payments/PaymentList';
 import { PaymentAnalytics } from './components/payments/PaymentAnalytics';
 import AnalyticsDashboard from "./components/AnalyticsDashboard";
 import OrgDashboard from "./components/OrgDashboard";
+import PulseConnect from "./components/PulseConnect";
+import PulseDoc from "./components/PulseDoc";
 
 function App() {
   return (
@@ -69,6 +71,8 @@ function App() {
           <Route path="/AI-analytics" element={<HypertensionAnalytics />} />
           <Route path="/PulseCare" element={<AnalyticsDashboard />} />
           <Route path="/PulseMedic" element={<OrgDashboard />} />
+          <Route path="/PulseConnect" element={<PulseConnect />} />
+          <Route path="/PulseDoc" element={<PulseDoc />} />
         </Routes>
         <Footer/>
         </PaymentProvider>
