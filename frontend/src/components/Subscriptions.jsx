@@ -1,11 +1,16 @@
-
 import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { FaCheck, FaTimes, FaUserMd, FaHospital } from "react-icons/fa";
+import { useNavigate } from "react-router-dom";
 
 const Subscriptions = () => {
   const [billingCycle, setBillingCycle] = useState("monthly"); // monthly or annually
   const [userType, setUserType] = useState("personal"); // personal or organization
+  const navigate = useNavigate();
+
+  const handleSubscribe = () => {
+    navigate('/payments/new');
+  };
 
   const personalPlans = [
     {
@@ -212,11 +217,13 @@ const Subscriptions = () => {
                 </ul>
 
                 <div className="mt-8">
-                  <button className={`w-full py-3 px-6 rounded-lg font-medium ${
-                    plan.highlight
-                      ? "bg-violet-600 text-white hover:bg-violet-700"
-                      : "bg-gray-200 text-gray-900 hover:bg-gray-300"
-                  }`}>
+                  <button 
+                    onClick={plan.name !== "Free" ? handleSubscribe : undefined} 
+                    className={`w-full py-3 px-6 rounded-lg font-medium ${
+                      plan.highlight
+                        ? "bg-violet-600 text-white hover:bg-violet-700"
+                        : "bg-gray-200 text-gray-900 hover:bg-gray-300"
+                    }`}>
                     {plan.name === "Free" ? "Get Started" : "Subscribe Now"}
                   </button>
                 </div>
