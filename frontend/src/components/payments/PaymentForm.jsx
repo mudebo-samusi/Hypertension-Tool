@@ -414,7 +414,7 @@ export const PaymentForm = () => {
             <input
               type="text"
               name="providerId"
-              placeholder="Provider ID"
+              placeholder="Provider ID/Subscript..."
               value={formData.providerId}
               onChange={handleChange}
               required
@@ -423,7 +423,7 @@ export const PaymentForm = () => {
             <input
               type="text"
               name="providerName"
-              placeholder="Provider Name"
+              placeholder="Provider eg PulsePal,..."
               value={formData.providerName}
               onChange={handleChange}
               required
