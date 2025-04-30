@@ -50,6 +50,8 @@ const Navbar = () => {
     { name: "PulseMarket", path: "/pulse-market" },
     { name: "Subscriptions", path: "/subscriptions" },
     { name: "PulseCare", path: "/PulseCare" },
+    { name: "PulseConnect", path: "/PulseConnect" },
+    { name: "PulseDoc", path: "/PulseDoc" },
     { name: "PulseMedic", path: "/PulseMedic" },
     { name: "Make Payments", path: "/payments/new" },
     { name: "PulsePay Analytics", path: "/payments" },
