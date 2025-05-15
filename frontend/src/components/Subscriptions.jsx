@@ -8,8 +8,17 @@ const Subscriptions = () => {
   const [userType, setUserType] = useState("personal"); // personal or organization
   const navigate = useNavigate();
 
-  const handleSubscribe = () => {
-    navigate('/payments/new');
+  const handleSubscribe = (plan) => {
+    navigate('/payments/new', {
+      state: {
+        subscription: {
+          planName: plan.name,
+          billingCycle,
+          userType,
+          price: plan.price[billingCycle]
+        }
+      }
+    });
   };
 
   const personalPlans = [
@@ -218,7 +227,7 @@ const Subscriptions = () => {
 
                 <div className="mt-8">
                   <button 
-                    onClick={plan.name !== "Free" ? handleSubscribe : undefined} 
+                    onClick={() => plan.name !== "Free" ? handleSubscribe(plan) : undefined} 
                     className={`w-full py-3 px-6 rounded-lg font-medium ${
                       plan.highlight
                         ? "bg-violet-600 text-white hover:bg-violet-700"
