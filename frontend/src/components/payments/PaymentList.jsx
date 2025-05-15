@@ -4,7 +4,7 @@ import { usePayment } from './PaymentContext';
 import { FileText, Search, Check, Clock, X, Filter } from 'lucide-react';
 
 export const PaymentList = () => {
-  const { payments, loading } = usePayment();
+  const { payments = [], loading } = usePayment();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   
@@ -21,15 +21,22 @@ export const PaymentList = () => {
     }
   };
   
-  const filteredPayments = payments.filter(payment => {
+  const filteredPayments = Array.isArray(payments) ? payments.filter(payment => {
+    // Guard against missing payment or properties
+    if (!payment) return false;
+    
+    const patientName = payment.patientName || '';
+    const providerName = payment.providerName || '';
+    const status = payment.status || '';
+    
     const matchesSearch = 
-      payment.patientName.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      payment.providerName.toLowerCase().includes(searchTerm.toLowerCase());
+      patientName.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      providerName.toLowerCase().includes(searchTerm.toLowerCase());
       
-    const matchesStatus = filterStatus === 'all' || payment.status === filterStatus;
+    const matchesStatus = filterStatus === 'all' || status === filterStatus;
     
     return matchesSearch && matchesStatus;
-  });
+  }) : [];
 
   return (
     <div className="bg-white rounded-lg shadow-md p-6">
@@ -92,19 +99,23 @@ export const PaymentList = () => {
                     <div className="text-sm text-gray-500">{payment.providerId}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">${payment.amount.toFixed(2)}</div>
+                    <div className="text-sm font-medium text-gray-900">
+                      ${typeof payment.amount === 'number' ? payment.amount.toFixed(2) : '0.00'}
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{payment.date}</div>
+                    <div className="text-sm text-gray-900">{payment.date || 'N/A'}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
                       {getStatusIcon(payment.status)}
-                      <span className="ml-1 text-sm text-gray-900 capitalize">{payment.status}</span>
+                      <span className="ml-1 text-sm text-gray-900 capitalize">{payment.status || 'unknown'}</span>
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900 capitalize">{payment.paymentMethod.replace('_', ' ')}</div>
+                    <div className="text-sm text-gray-900 capitalize">
+                      {payment.paymentMethod ? payment.paymentMethod.replace('_', ' ') : 'unknown'}
+                    </div>
                   </td>
                 </tr>
               ))}
