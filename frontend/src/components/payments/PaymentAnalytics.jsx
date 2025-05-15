@@ -6,7 +6,7 @@ import { PieChart, Pie, Cell, Legend } from 'recharts';
 import { TrendingUp, DollarSign, CreditCard, Users, Calendar } from 'lucide-react';
 
 export const PaymentAnalytics = () => {
-  const { payments } = usePayment();
+  const { payments = [] } = usePayment();
   const [timeFrame, setTimeFrame] = useState('monthly');
   const [analyticsData, setAnalyticsData] = useState({
     totalRevenue: 0,
@@ -19,23 +19,45 @@ export const PaymentAnalytics = () => {
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8'];
 
   useEffect(() => {
-    if (payments.length > 0) {
+    // Check if payments is an array and not empty
+    if (Array.isArray(payments) && payments.length > 0) {
       calculateAnalytics();
+    } else {
+      // Reset analytics data if there are no payments
+      setAnalyticsData({
+        totalRevenue: 0,
+        avgTransactionValue: 0,
+        paymentMethodDistribution: [],
+        revenueByPeriod: timeFrame === 'monthly' ? 
+          [{ period: 'No Data', revenue: 0 }] : 
+          [{ period: 'Week 1', revenue: 0 }, { period: 'Week 2', revenue: 0 }, 
+           { period: 'Week 3', revenue: 0 }, { period: 'Week 4', revenue: 0 }]
+      });
     }
   }, [payments, timeFrame]);
 
   const calculateAnalytics = () => {
-    // Total revenue
-    const totalRevenue = payments
-      .filter(p => p.status === 'completed')
-      .reduce((sum, payment) => sum + payment.amount, 0);
+    // Ensure payments is an array before processing
+    if (!Array.isArray(payments)) {
+      console.error('Payments is not an array:', payments);
+      return;
+    }
+
+    // Total revenue - safely filter and reduce
+    const validPayments = payments.filter(p => p && p.status === 'completed');
+    const totalRevenue = validPayments.reduce((sum, payment) => 
+      sum + (typeof payment.amount === 'number' ? payment.amount : 0), 0);
     
-    // Average transaction value
-    const avgTransactionValue = totalRevenue / payments.filter(p => p.status === 'completed').length || 0;
+    // Average transaction value with safety check
+    const avgTransactionValue = validPayments.length > 0 ? 
+      totalRevenue / validPayments.length : 0;
     
-    // Payment method distribution
+    // Payment method distribution with safety checks
     const paymentMethodCounts = payments.reduce((acc, payment) => {
-      acc[payment.paymentMethod] = (acc[payment.paymentMethod] || 0) + 1;
+      if (payment && payment.paymentMethod) {
+        const method = payment.paymentMethod;
+        acc[method] = (acc[method] || 0) + 1;
+      }
       return acc;
     }, {});
     
@@ -44,31 +66,47 @@ export const PaymentAnalytics = () => {
       value: paymentMethodCounts[method]
     }));
     
-    // Revenue by period (month or week)
+    // Revenue by period with safety checks
     let revenueByPeriod = [];
     
     if (timeFrame === 'monthly') {
-      const monthlyRevenue = payments
-        .filter(p => p.status === 'completed')
-        .reduce((acc, payment) => {
+      const monthlyRevenue = validPayments.reduce((acc, payment) => {
+        if (payment && payment.date) {
           const month = payment.date.substring(0, 7); // YYYY-MM
-          acc[month] = (acc[month] || 0) + payment.amount;
-          return acc;
-        }, {});
+          acc[month] = (acc[month] || 0) + (typeof payment.amount === 'number' ? payment.amount : 0);
+        }
+        return acc;
+      }, {});
       
       revenueByPeriod = Object.keys(monthlyRevenue).map(month => ({
         period: month,
         revenue: monthlyRevenue[month]
       }));
+      
+      // If no data, provide a placeholder
+      if (revenueByPeriod.length === 0) {
+        revenueByPeriod = [{ period: 'No Data', revenue: 0 }];
+      }
     } else {
-      // Weekly calculation would go here
-      // For simplicity, using mock data
+      // Weekly calculation or placeholder data
       revenueByPeriod = [
-        { period: 'Week 1', revenue: 1200 },
-        { period: 'Week 2', revenue: 950 },
-        { period: 'Week 3', revenue: 1500 },
-        { period: 'Week 4', revenue: 1800 }
+        { period: 'Week 1', revenue: 0 },
+        { period: 'Week 2', revenue: 0 },
+        { period: 'Week 3', revenue: 0 },
+        { period: 'Week 4', revenue: 0 }
       ];
+      
+      // Try to populate with real data if available
+      validPayments.forEach(payment => {
+        if (payment && payment.date) {
+          const date = new Date(payment.date);
+          const weekOfMonth = Math.ceil(date.getDate() / 7);
+          if (weekOfMonth >= 1 && weekOfMonth <= 4) {
+            revenueByPeriod[weekOfMonth-1].revenue += 
+              (typeof payment.amount === 'number' ? payment.amount : 0);
+          }
+        }
+      });
     }
     
     setAnalyticsData({
@@ -78,6 +116,9 @@ export const PaymentAnalytics = () => {
       revenueByPeriod
     });
   };
+
+  // Safe count for total transactions
+  const totalTransactions = Array.isArray(payments) ? payments.length : 0;
 
   return (
     <div className="bg-white rounded-lg shadow-md p-6">
@@ -121,7 +162,7 @@ export const PaymentAnalytics = () => {
             <h3 className="text-lg font-medium text-gray-700">Total Transactions</h3>
             <Users className="h-6 w-6 text-purple-500" />
           </div>
-          <p className="text-2xl font-bold mt-2">{payments.length}</p>
+          <p className="text-2xl font-bold mt-2">{totalTransactions}</p>
         </div>
       </div>
       
