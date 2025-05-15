@@ -1,10 +1,9 @@
 from flask import Flask, request, jsonify, render_template_string
-from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 import datetime
 from flask_bcrypt import Bcrypt
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
-from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity, create_refresh_token
 from flask_mail import Mail, Message
 from itsdangerous import URLSafeTimedSerializer
 import joblib
@@ -20,6 +19,17 @@ from flask_socketio import SocketIO
 # Import the MQTT client module
 import mqtt_client
 import uuid  # Add import for UUID
+
+# Import db from the new file
+from db import db, init_db
+from models.user import User
+from models.bp_reading import BPReading
+from models.review import Review
+from werkzeug.security import generate_password_hash, check_password_hash
+from models.subscription import Subscription
+from models.payments import Payment
+# Import SubscriptionService after all models are defined
+from services.SubService import SubscriptionService
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -48,12 +58,16 @@ CORS(app,
 logging.basicConfig(level=logging.DEBUG)
 
 # Initialize extensions
-db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
 login_manager = LoginManager(app)
 jwt = JWTManager(app)
 mail = Mail(app)
 serializer = URLSafeTimedSerializer(app.config["SECRET_KEY"])
+
+# Initialize database using the new function
+with app.app_context():
+    init_db(app)
+    db.create_all()
 
 # Add JWT error handler
 @jwt.invalid_token_loader
@@ -198,76 +212,71 @@ def get_profile():
     
     return jsonify(profile_data), 200
 
-
-# User model
-class User(db.Model, UserMixin):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(20), unique=True, nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)  # Add email field
-    password = db.Column(db.String(60), nullable=False)
-    role = db.Column(db.String(20), nullable=False, default="patient")
-  
-
-# BP Reading model
-class BPReading(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    systolic = db.Column(db.Float, nullable=False)
-    diastolic = db.Column(db.Float, nullable=False)
-    heart_rate = db.Column(db.Float, nullable=False)
-    timestamp = db.Column(db.DateTime, nullable=False, default=db.func.current_timestamp())
-    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)  # Changed to nullable=True
-
-# Add Review model after other models
-class Review(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    text = db.Column(db.String(500), nullable=False)
-    timestamp = db.Column(db.DateTime, nullable=False, default=db.func.current_timestamp())
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
-
-# Initialize database
-with app.app_context():
-    db.create_all()
-
 # User loader for Flask-Login
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
 
 # Register endpoint
-@app.route("/register", methods=["POST"])
+@app.route('/register', methods=['POST'])
 def register():
-    try:
-        data = request.json
-        username = data.get("username")
-        email = data.get("email")
-        role = data.get("role")
-        password = data.get("password")
+    data = request.get_json()
+    username = data.get('username')
+    email = data.get('email')
+    password = data.get('password')
+    role = data.get('role')
+    additional_info = data.get('additionalInfo', {})
 
-        if not all([username, email, password, role]):
-            return jsonify({"success": False, "message": "All fields are required."}), 400
+    # Basic validation
+    if not username or not email or not password or not role:
+        return jsonify(success=False, message="Missing required fields"), 400
 
-        if User.query.filter_by(username=username).first():
-            return jsonify({"success": False, "message": "Username already exists."}), 400
-            
-        if User.query.filter_by(email=email).first():
-            return jsonify({"success": False, "message": "Email already exists."}), 400
+    # Check if user/email already exists
+    if User.query.filter_by(username=username).first():
+        return jsonify(success=False, message="Username already exists"), 400
+    if User.query.filter_by(email=email).first():
+        return jsonify(success=False, message="Email already exists"), 400
 
-        hashed_password = bcrypt.generate_password_hash(password).decode("utf-8")
-        user = User(
-            username=username, 
-            email=email, 
-            password=hashed_password, 
-            role=role,
-        )
-        db.session.add(user)
-        db.session.commit()
+    # Create user with basic fields
+    hashed_password = generate_password_hash(password)
+    user = User(
+        username=username,
+        email=email,
+        password=hashed_password,
+        role=role
+    )
+    
+    # Add role-specific data to user object
+    if role == "Care Taker":
+        if not additional_info.get('patientId'):
+            return jsonify(success=False, message="Patient ID required for Care Taker"), 400
+        user.patient_id = additional_info.get('patientId')
 
-        return jsonify({"success": True, "message": "User registered successfully."}), 201
-    except Exception as e:
-        db.session.rollback()
-        logging.error(f"Registration error: {str(e)}")  # Improved error logging
-        return jsonify({"success": False, "message": "An error occurred during registration."}), 500
+    if role == "Doctor":
+        if not additional_info.get('type'):
+            return jsonify(success=False, message="Doctor type required"), 400
+        user.doctor_type = additional_info.get('type')
+        if additional_info.get('type') == "Organizational" and not additional_info.get('hospitalName'):
+            return jsonify(success=False, message="Hospital/Clinic Name required for Organizational Doctor"), 400
+        user.hospital_name = additional_info.get('hospitalName')
 
+    if role == "Patient":
+        if not additional_info.get('caretakerId'):
+            return jsonify(success=False, message="Caretaker ID required for Patient"), 400
+        user.caretaker_id = additional_info.get('caretakerId')
+
+    if role == "Organization":
+        if not additional_info.get('organizationType'):
+            return jsonify(success=False, message="Organization Type required"), 400
+        user.organization_type = additional_info.get('organizationType')
+
+    db.session.add(user)
+    db.session.commit()
+
+    # Generate a temporary token valid for 1 hour
+    temp_token = create_access_token(identity=str(user.id), expires_delta=datetime.timedelta(hours=1))
+
+    return jsonify(success=True, message="Registration successful", temp_token=temp_token), 201
 
 # Configure Flask-Login
 login_manager.login_view = "login"
@@ -280,52 +289,41 @@ login_manager.needs_refresh_message_category = "warning"
 # Enable "remember me" functionality
 @app.route("/login", methods=["POST"])
 def login():
-    try:
-        data = request.json
-        if not data:
-            return jsonify({"error": "No JSON data provided."}), 400
-            
-        username = data.get("username")
-        password = data.get("password")
-        remember = data.get("remember", False)  # Get "remember me" option
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No JSON data provided."}), 400
 
-        logging.debug(f"Login attempt for username: {username}")
+    username = data.get("username")
+    password = data.get("password")
+    remember = data.get("remember", False)
 
-        if not username or not password:
-            return jsonify({"error": "Username and password are required."}), 400
+    # Check that the user exists
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({"error": "User not found."}), 404
 
-        user = User.query.filter_by(username=username).first()
+    # Verify password using Werkzeug
+    if not check_password_hash(user.password, password):
+        return jsonify({"error": "Invalid username or password."}), 401
 
-        if user and bcrypt.check_password_hash(user.password, password):
-            login_user(user, remember=remember)  # Use Flask-Login's login_user
-            
-            # Create token with longer expiration if remember is True
-            expires_delta = None
-            if remember:
-                expires_delta = datetime.timedelta(days=30)  # 30 days for "remember me"
-            else:
-                expires_delta = datetime.timedelta(hours=1)  # 1 hour for regular session
-                
-            # Convert user.id to string to fix the "Subject must be a string" error
-            access_token = create_access_token(
-                identity=str(user.id),
-                expires_delta=expires_delta
-            )
-            
-            return jsonify({
-                "access_token": access_token,
-                "user": {
-                    "id": user.id,
-                    "username": user.username,
-                    "email": user.email,
-                    "role": user.role
-                }
-            }), 200
-        else:
-            return jsonify({"error": "Invalid username or password."}), 401
-    except Exception as e:
-        logging.error(f"Error in login: {e}")
-        return jsonify({"error": "An error occurred during login."}), 500
+    # Log in via Flask-Login
+    login_user(user, remember=remember)
+
+    # Generate JWT tokens
+    expires_delta = datetime.timedelta(days=30) if remember else datetime.timedelta(hours=1)
+    access_token = create_access_token(identity=str(user.id), expires_delta=expires_delta)
+    refresh_token = create_refresh_token(identity=str(user.id))
+
+    return jsonify({
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "role": user.role
+        }
+    }), 200
 
 # Add token verification endpoint
 @app.route("/verify-token", methods=["GET"])
@@ -562,6 +560,130 @@ def create_review():
         db.session.rollback()
         logging.error(f"Error creating review: {e}")
         return jsonify({"error": "Failed to create review"}), 500
+
+@app.route("/subscriptions/new", methods=["POST"])
+@jwt_required()
+def create_subscription():
+    try:
+        data = request.json
+        user_id = int(get_jwt_identity())
+        
+        subscription, payment = SubscriptionService.create_subscription(
+            user_id,
+            data['subscription'],
+            data['payment']
+        )
+        
+        return jsonify({
+            'subscription': subscription,
+            'payment': payment
+        }), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route("/subscriptions/active", methods=["GET"])
+@jwt_required()
+def get_active_subscription():
+    try:
+        user_id = int(get_jwt_identity())
+        subscription = SubscriptionService.get_active_subscription(user_id)
+        
+        if subscription:
+            return jsonify(subscription.to_dict()), 200
+        return jsonify({'message': 'No active subscription found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route("/subscriptions/<int:subscription_id>/cancel", methods=["POST"])
+@jwt_required()
+def cancel_subscription(subscription_id):
+    try:
+        subscription = SubscriptionService.cancel_subscription(subscription_id)
+        if subscription:
+            return jsonify(subscription), 200
+        return jsonify({'error': 'Subscription not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+# Add payment endpoints
+@app.route("/payments", methods=["POST"])
+@jwt_required()
+def create_payment():
+    try:
+        data = request.json
+        user_id = int(get_jwt_identity())
+        
+        # Validate payment method
+        payment_method = data.get('payment_method')
+        if not payment_method or payment_method not in Payment.SUPPORTED_METHODS:
+            return jsonify({"error": f"Unsupported payment method. Supported methods: {', '.join(Payment.SUPPORTED_METHODS)}"}), 400
+        
+        # Validate payment details based on method
+        payment_details = data.get('payment_details', {})
+        
+        # Create new payment record
+        payment = Payment(
+            amount=data['amount'],
+            currency=data.get('currency', 'USD'),
+            payment_method=payment_method,
+            patient_id=data.get('patient_id', user_id),
+            provider_id=data['provider_id'],
+            status="Payment completed",
+            payment_date=datetime.datetime.now(),
+            user_id=user_id,
+            payment_details=payment_details
+        )
+        
+        db.session.add(payment)
+        db.session.commit()
+        
+        return jsonify(payment.to_dict()), 201
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Error creating payment: {e}")
+        return jsonify({"error": f"Failed to create payment: {str(e)}"}), 500
+
+@app.route("/payments", methods=["GET"])
+@jwt_required()
+def get_payments():
+    try:
+        user_id = int(get_jwt_identity())
+        user = User.query.get(user_id)
+        
+        # Determine which payments to return based on user role
+        if user.role == "Patient":
+            payments = Payment.query.filter_by(patient_id=user_id).all()
+        elif user.role in ["Doctor", "Organization"]:
+            payments = Payment.query.filter_by(provider_id=user_id).all()
+        elif user.role == "Admin":
+            payments = Payment.query.all()
+        else:
+            payments = []
+            
+        return jsonify([payment.to_dict() for payment in payments]), 200
+    except Exception as e:
+        logging.error(f"Error fetching payments: {e}")
+        return jsonify({"error": f"Failed to fetch payments: {str(e)}"}), 500
+
+@app.route("/patients/<int:patient_id>/payments", methods=["GET"])
+@jwt_required()
+def get_patient_payments(patient_id):
+    try:
+        payments = Payment.query.filter_by(patient_id=patient_id).all()
+        return jsonify([payment.to_dict() for payment in payments]), 200
+    except Exception as e:
+        logging.error(f"Error fetching patient payments: {e}")
+        return jsonify({"error": f"Failed to fetch patient payments: {str(e)}"}), 500
+
+@app.route("/providers/<int:provider_id>/payments", methods=["GET"])
+@jwt_required()
+def get_provider_payments(provider_id):
+    try:
+        payments = Payment.query.filter_by(provider_id=provider_id).all()
+        return jsonify([payment.to_dict() for payment in payments]), 200
+    except Exception as e:
+        logging.error(f"Error fetching provider payments: {e}")
+        return jsonify({"error": f"Failed to fetch provider payments: {str(e)}"}), 500
 
 # Initialize and start MQTT client when Flask app starts
 def start_mqtt():
