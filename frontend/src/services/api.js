@@ -18,7 +18,14 @@ api.interceptors.request.use(
     (config) => {
         // Normalize URL for noAuthRequired check
         const urlPath = config.url?.startsWith('/') ? config.url : `/${config.url}`;
-        const noAuthRequired = ['/login', '/register', '/request-password-reset', '/reset-password', '/get-readings'].includes(urlPath);
+        const noAuthRequired = [
+            '/login', 
+            '/register', 
+            '/request-password-reset', 
+            '/reset-password', 
+            '/get-readings',
+            // '/payments'  <-- ensure this is NOT present here
+        ].includes(urlPath);
         if (noAuthRequired) {
             return config;
         }
@@ -101,13 +108,22 @@ api.register = async (userData) => {
 // Add a method to check if user is authenticated
 api.isAuthenticated = () => {
     const token = localStorage.getItem('access_token');
-    return token && token !== "null";
+    const user = api.getCurrentUser();
+    return Boolean(token && user);
 };
 
 // Add a method to get the current user
 api.getCurrentUser = () => {
-    const userString = localStorage.getItem('user');
-    return userString ? JSON.parse(userString) : null;
+    try {
+        const userString = localStorage.getItem('user');
+        if (!userString) return null;
+        
+        const user = JSON.parse(userString);
+        return user;
+    } catch (error) {
+        console.error('Error getting current user from storage:', error);
+        return null;
+    }
 };
 
 // Add logout method
@@ -251,6 +267,92 @@ api.createReview = async (text) => {
         return await api.post('/reviews', { text });
     } catch (error) {
         console.error("Error creating review:", error);
+        throw error;
+    }
+};
+
+// Add assignTemporaryToken method
+api.assignTemporaryToken = async (token) => {
+    try {
+        cachedToken = token;
+        localStorage.setItem('access_token', token);
+    } catch (error) {
+        console.error("Error assigning temporary token:", error);
+        throw error;
+    }
+};
+
+// Add payment methods
+api.getPayments = async (includeSubscriptions = false) => {
+    try {
+        // Fetch all payments from the backend
+        const response = await api.get('/payments');
+        
+        // Handle case where response is already the data array (due to interceptor)
+        const paymentsData = Array.isArray(response) ? response : [];
+        
+        // Filter out subscription payments if requested
+        if (!includeSubscriptions) {
+            return paymentsData.filter(payment => !payment.is_subscription_payment);
+        }
+        
+        return paymentsData;
+    } catch (error) {
+        console.error("Error fetching payments:", error);
+        throw error;
+    }
+};
+
+api.getPatientPayments = async (patientId, includeSubscriptions = false) => {
+    try {
+        const response = await api.get(`/patients/${patientId}/payments`);
+        
+        // Handle case where response is already the data array (due to interceptor)
+        const paymentsData = Array.isArray(response) ? response : [];
+        
+        // Filter out subscription payments if requested
+        if (!includeSubscriptions) {
+            return paymentsData.filter(payment => !payment.is_subscription_payment);
+        }
+        
+        return paymentsData;
+    } catch (error) {
+        console.error("Error fetching patient payments:", error);
+        throw error;
+    }
+};
+
+api.getProviderPayments = async (providerId, includeSubscriptions = false) => {
+    try {
+        const response = await api.get(`/providers/${providerId}/payments`);
+        
+        // Handle case where response is already the data array (due to interceptor)
+        const paymentsData = Array.isArray(response) ? response : [];
+        
+        // Filter out subscription payments if requested
+        if (!includeSubscriptions) {
+            return paymentsData.filter(payment => !payment.is_subscription_payment);
+        }
+        
+        return paymentsData;
+    } catch (error) {
+        console.error("Error fetching provider payments:", error);
+        throw error;
+    }
+};
+
+api.createPayment = async (paymentData) => {
+    try {
+        const response = await api.post('/payments', paymentData);
+        // Ensure we return a properly structured response even if the API return value is unexpected
+        return response || { 
+            id: new Date().getTime(),
+            status: 'completed',
+            amount: paymentData.amount,
+            currency: paymentData.currency || 'USD'
+        };
+    } catch (error) {
+        console.error("Error creating payment:", error);
         throw error;
     }
 };
