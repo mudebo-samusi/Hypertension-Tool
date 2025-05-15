@@ -8,27 +8,40 @@ function Register() {
     email: '',
     password: '',
     role: '',
+    additionalInfo: {}, // Store role-specific data
   });
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
   const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
+    const { name, value } = e.target;
+    if (name.startsWith('additionalInfo.')) {
+      const key = name.split('.')[1];
+      setFormData({
+        ...formData,
+        additionalInfo: {
+          ...formData.additionalInfo,
+          [key]: value,
+        },
+      });
+    } else {
+      setFormData({
+        ...formData,
+        [name]: value,
+      });
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(''); // Clear previous errors
-    
+
     try {
       if (!formData.email || !formData.email.includes('@')) {
         setError('Please enter a valid email address');
         return;
       }
-      
+
       if (!formData.role) {
         setError('Please select a role');
         return;
@@ -36,11 +49,14 @@ function Register() {
 
       // Use api.register method
       const response = await api.register(formData);
-      
+
       // Check the success flag in the response
       if (response.success) {
-        // Registration successful, navigate to login
-        navigate('/login');
+        if (response.temp_token) {
+          await api.assignTemporaryToken(response.temp_token);
+        }
+        // Registration successful, navigate to subscriptions
+        navigate('/subscriptions');
       } else {
         // Server returned a structured error
         setError(response.message || 'Registration failed. Please try again.');
@@ -61,7 +77,7 @@ function Register() {
           <div>
             <input
               type="text"
-              className="w-full px-3 py-2 sm:py-2.5 text-sm sm:text-base border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full px-3 py-2 sm:py-2.5 text-sm sm:text-base border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-violet-500"
               name="username"
               placeholder="Username"
               value={formData.username}
@@ -72,7 +88,7 @@ function Register() {
           <div>
             <input
               type="email"
-              className="w-full px-3 py-2 sm:py-2.5 text-sm sm:text-base border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full px-3 py-2 sm:py-2.5 text-sm sm:text-base border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-violet-500"
               name="email"
               placeholder="Email"
               value={formData.email}
@@ -80,10 +96,9 @@ function Register() {
               required
             />
           </div>
-          
           <div>
             <select
-              className="w-full px-3 py-2 sm:py-2.5 text-sm sm:text-base border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full px-3 py-2 sm:py-2.5 text-sm sm:text-base border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-violet-500"
               name="role"
               value={formData.role || ''}
               onChange={handleChange}
@@ -96,10 +111,77 @@ function Register() {
               <option value="Organization">Organization</option>
             </select>
           </div>
+          {formData.role === 'Care Taker' && (
+            <div>
+              <input
+                type="text"
+                className="w-full px-3 py-2 sm:py-2.5 text-sm sm:text-base border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-violet-500"
+                name="additionalInfo.patientId"
+                placeholder="Patient ID"
+                value={formData.additionalInfo.patientId || ''}
+                onChange={handleChange}
+                required
+              />
+            </div>
+          )}
+          {formData.role === 'Doctor' && (
+            <div>
+              <select
+                className="w-full px-3 py-2 sm:py-2.5 text-sm sm:text-base border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-violet-500"
+                name="additionalInfo.type"
+                value={formData.additionalInfo.type || ''}
+                onChange={handleChange}
+                required
+              >
+                <option value="" disabled>Select Doctor Type</option>
+                <option value="Private">Private</option>
+                <option value="Organizational">Organizational</option>
+              </select>
+            </div>
+          )}
+          {formData.role === 'Doctor' && formData.additionalInfo.type === 'Organizational' && (
+            <div>
+              <input
+                type="text"
+                className="w-full px-3 py-2 sm:py-2.5 text-sm sm:text-base border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-violet-500"
+                name="additionalInfo.hospitalName"
+                placeholder="Hospital/Clinic Name"
+                value={formData.additionalInfo.hospitalName || ''}
+                onChange={handleChange}
+                required
+              />
+            </div>
+          )}
+          {formData.role === 'Patient' && (
+            <div>
+              <input
+                type="text"
+                className="w-full px-3 py-2 sm:py-2.5 text-sm sm:text-base border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-violet-500"
+                name="additionalInfo.caretakerId"
+                placeholder="Caretaker ID"
+                value={formData.additionalInfo.caretakerId || ''}
+                onChange={handleChange}
+                required
+              />
+            </div>
+          )}
+          {formData.role === 'Organization' && (
+            <div>
+              <input
+                type="text"
+                className="w-full px-3 py-2 sm:py-2.5 text-sm sm:text-base border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-violet-500"
+                name="additionalInfo.organizationType"
+                placeholder="Organization Type (e.g., Hospital, Clinic)"
+                value={formData.additionalInfo.organizationType || ''}
+                onChange={handleChange}
+                required
+              />
+            </div>
+          )}
           <div>
             <input
               type="password"
-              className="w-full px-3 py-2 sm:py-2.5 text-sm sm:text-base border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full px-3 py-2 sm:py-2.5 text-sm sm:text-base border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-violet-500"
               name="password"
               placeholder="Password"
               value={formData.password}
@@ -109,13 +191,13 @@ function Register() {
           </div>
           <button 
             type="submit" 
-            className="w-full bg-blue-500 text-white py-2 sm:py-2.5 px-4 text-sm sm:text-base rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition-colors duration-200"
+            className="w-full bg-violet-500 text-white py-2 sm:py-2.5 px-4 text-sm sm:text-base rounded-md hover:bg-violet-600 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-opacity-50 transition-colors duration-200"
           >
             Register
           </button>
         </form>
         <div className="mt-4 text-center text-sm sm:text-base">
-          Already have an account? <Link to="/login" className="text-blue-500 hover:text-blue-600">Login</Link>
+          Already have an account? <Link to="/login" className="text-violet-500 hover:text-violet-600">Login</Link>
         </div>
       </div>
     </div>
