@@ -1,6 +1,7 @@
 // PaymentForm.jsx
 import React, { useState, useEffect } from 'react';
 import { usePayment } from './PaymentContext';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { 
   CreditCard, 
   Building, 
@@ -15,7 +16,22 @@ import {
 } from 'lucide-react';
 
 export const PaymentForm = () => {
-  const { addPayment, loading } = usePayment();
+  const { 
+    addPayment, 
+    loading, 
+    currencies, 
+    selectedCurrency, 
+    changeCurrency,
+    formatAmountWithCurrency,
+    convertAmount
+  } = usePayment();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const subscriptionData = location.state?.subscription;
+
+  // Add a state to track the original USD amount
+  const [originalAmountUSD, setOriginalAmountUSD] = useState('');
+
   const [formData, setFormData] = useState({
     patientId: '',
     patientName: '',
@@ -39,55 +55,107 @@ export const PaymentForm = () => {
     insuranceProvider: '',
     membershipNumber: '',
     // Currency
-    currency: 'USD'
+    currency: selectedCurrency, // Use the selectedCurrency from context
+    isSubscription: false,
+    subscriptionDetails: {
+      planName: '',
+      billingCycle: '',
+      userType: '',
+      price: 0
+    }
   });
   const [message, setMessage] = useState({ type: '', text: '' });
   const [showPaymentDetails, setShowPaymentDetails] = useState(true);
 
-  // Available currencies with symbols
-  const currencies = [
-    { code: 'USD', symbol: '$', name: 'US Dollar' },
-    { code: 'EUR', symbol: '€', name: 'Euro' },
-    { code: 'GBP', symbol: '£', name: 'British Pound' },
-    { code: 'JPY', symbol: '¥', name: 'Japanese Yen' },
-    { code: 'ZAR', symbol: 'R', name: 'South African Rand' },
-    { code: 'NGN', symbol: '₦', name: 'Nigerian Naira' },
-    { code: 'KES', symbol: 'KSh', name: 'Kenyan Shilling' },
-    { code: 'GHS', symbol: 'GH₵', name: 'Ghanaian Cedi' },
-    { code: 'UGX', symbol: 'USh', name: 'Ugandan Shilling' },
-    { code: 'RWF', symbol: 'FRw', name: 'Rwandan Franc' }
-  ];
+  useEffect(() => {
+    if (subscriptionData) {
+      setOriginalAmountUSD(subscriptionData.price.toString());
+      setFormData(prev => ({
+        ...prev,
+        isSubscription: true,
+        amount: subscriptionData.price.toString(),
+        providerId: 'PULSEPAL',
+        providerName: 'PulsePal Healthcare Platform',
+        subscriptionDetails: {
+          planName: subscriptionData.planName,
+          billingCycle: subscriptionData.billingCycle,
+          userType: subscriptionData.userType,
+          price: subscriptionData.price
+        }
+      }));
+    }
+  }, [subscriptionData]);
+
+  // Update currency whenever selectedCurrency changes in the context
+  useEffect(() => {
+    setFormData(prev => ({ ...prev, currency: selectedCurrency }));
+  }, [selectedCurrency]);
+
+  // Update formData when original USD amount changes
+  useEffect(() => {
+    if (originalAmountUSD && formData.currency !== 'USD') {
+      const convertedAmount = convertAmount(parseFloat(originalAmountUSD));
+      setFormData(prev => ({ 
+        ...prev, 
+        amount: convertedAmount.toFixed(2)
+      }));
+    }
+  }, [originalAmountUSD, formData.currency, convertAmount]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+    
+    // If we're editing the amount field and currency is USD, update the original amount
+    if (name === 'amount' && formData.currency === 'USD') {
+      setOriginalAmountUSD(value);
+    }
   };
 
-  // Format card number with spaces
-  const formatCardNumber = (value) => {
-    const v = value.replace(/\s+/g, '').replace(/[^0-9]/gi, '');
-    const matches = v.match(/\d{4,16}/g);
-    const match = matches && matches[0] || '';
-    const parts = [];
+  const handleCurrencyChange = (e) => {
+    const newCurrency = e.target.value;
+    changeCurrency(newCurrency);
     
-    for (let i = 0; i < match.length; i += 4) {
-      parts.push(match.substring(i, i + 4));
-    }
-    
-    if (parts.length) {
-      return parts.join(' ');
+    // Convert the amount if we have an original USD amount
+    if (formData.amount) {
+      let amountToConvert = originalAmountUSD || formData.amount;
+      
+      // If switching from a non-USD currency to another non-USD currency
+      // First convert back to USD if needed
+      if (formData.currency !== 'USD' && newCurrency !== 'USD') {
+        // Get amount in USD first (using the previous currency)
+        const amountInUSD = convertAmount(parseFloat(formData.amount), formData.currency);
+        setOriginalAmountUSD(amountInUSD.toString());
+        amountToConvert = amountInUSD;
+      }
+      
+      // Now convert from USD to the new currency
+      if (newCurrency !== 'USD') {
+        const convertedAmount = convertAmount(parseFloat(amountToConvert));
+        setFormData(prev => ({ 
+          ...prev, 
+          currency: newCurrency,
+          amount: convertedAmount.toFixed(2)
+        }));
+      } else {
+        // If switching to USD, use the original amount
+        setFormData(prev => ({ 
+          ...prev, 
+          currency: 'USD',
+          amount: originalAmountUSD
+        }));
+      }
     } else {
-      return value;
+      // No amount to convert, just update the currency
+      setFormData(prev => ({ ...prev, currency: newCurrency }));
     }
   };
 
-  // Handle card number input with formatting
   const handleCardNumberChange = (e) => {
     const formattedValue = formatCardNumber(e.target.value);
     setFormData(prev => ({ ...prev, cardNumber: formattedValue }));
   };
 
-  // Format expiry date
   const handleExpiryDateChange = (e) => {
     let value = e.target.value.replace(/\D/g, '');
     if (value.length > 2) {
@@ -96,7 +164,6 @@ export const PaymentForm = () => {
     setFormData(prev => ({ ...prev, expiryDate: value }));
   };
 
-  // Detect card type based on number
   const detectCardType = (number) => {
     const firstDigit = number.charAt(0);
     const firstTwoDigits = number.substring(0, 2);
@@ -134,7 +201,16 @@ export const PaymentForm = () => {
         delete paymentData.expiryDate;
       }
       
-      await addPayment(paymentData);
+      const result = await addPayment(paymentData);
+      
+      // Check if authentication is required (addPayment returns null in this case)
+      if (result === null) {
+        setMessage({ 
+          type: 'info', 
+          text: 'Please log in to complete your payment. You will be redirected to the login page.' 
+        });
+        return; // The redirection will happen in the PaymentContext
+      }
       
       // Reset form and show success message
       setFormData({
@@ -155,19 +231,32 @@ export const PaymentForm = () => {
         routingNumber: '',
         insuranceProvider: '',
         membershipNumber: '',
-        currency: 'USD'
+        currency: selectedCurrency,
+        isSubscription: false,
+        subscriptionDetails: {
+          planName: '',
+          billingCycle: '',
+          userType: '',
+          price: 0
+        }
       });
+      setOriginalAmountUSD(''); // Reset originalAmountUSD
       
       setMessage({ type: 'success', text: 'Payment processed successfully!' });
       
-      // Clear message after 3 seconds
-      setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+      // Navigate to home page after successful payment
+      setTimeout(() => {
+        navigate('/');
+      }, 1500); // Short delay to show success message before redirecting
+      
     } catch (error) {
-      setMessage({ type: 'error', text: error.message || 'Failed to process payment' });
+      setMessage({ 
+        type: 'error', 
+        text: error.message || 'Failed to process payment. Please try again.' 
+      });
     }
   };
 
-  // Render different payment detail fields based on selected payment method
   const renderPaymentMethodFields = () => {
     switch(formData.paymentMethod) {
       case 'credit_card':
@@ -368,8 +457,20 @@ export const PaymentForm = () => {
     <div className="bg-white rounded-lg shadow-md p-6 max-w-md mx-auto">
       <h2 className="text-2xl font-semibold mb-6 text-gray-800 flex items-center">
         <DollarSign className="mr-2 text-violet-500" />
-        Process Payment
+        {formData.isSubscription ? 'Subscribe to PulsePal' : 'Process Payment'}
       </h2>
+      
+      {formData.isSubscription && (
+        <div className="mb-6 p-4 bg-violet-50 rounded-lg">
+          <h3 className="font-medium text-violet-800">Subscription Details</h3>
+          <div className="mt-2 text-sm text-violet-600">
+            <p>Plan: {formData.subscriptionDetails.planName}</p>
+            <p>Billing: {formData.subscriptionDetails.billingCycle}</p>
+            <p>Type: {formData.subscriptionDetails.userType}</p>
+            <p>Amount: ${formData.subscriptionDetails.price}</p>
+          </div>
+        </div>
+      )}
       
       {message.text && (
         <div className={`mb-4 p-3 rounded ${message.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
@@ -378,59 +479,63 @@ export const PaymentForm = () => {
       )}
       
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="space-y-2">
-          <label className="block text-sm font-medium text-gray-700 flex items-center">
-            <User className="w-4 h-4 mr-1" />
-            Patient Information
-          </label>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <input
-              type="text"
-              name="patientId"
-              placeholder="Patient ID"
-              value={formData.patientId}
-              onChange={handleChange}
-              required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
-            />
-            <input
-              type="text"
-              name="patientName"
-              placeholder="Patient Name"
-              value={formData.patientName}
-              onChange={handleChange}
-              required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
-            />
-          </div>
-        </div>
-        
-        <div className="space-y-2">
-          <label className="block text-sm font-medium text-gray-700 flex items-center">
-            <Building className="w-4 h-4 mr-1" />
-            Provider Information
-          </label>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <input
-              type="text"
-              name="providerId"
-              placeholder="Provider ID/Subscript..."
-              value={formData.providerId}
-              onChange={handleChange}
-              required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
-            />
-            <input
-              type="text"
-              name="providerName"
-              placeholder="Provider eg PulsePal,..."
-              value={formData.providerName}
-              onChange={handleChange}
-              required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
-            />
-          </div>
-        </div>
+        {!formData.isSubscription && (
+          <>
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700 flex items-center">
+                <User className="w-4 h-4 mr-1" />
+                Patient Information
+              </label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <input
+                  type="text"
+                  name="patientId"
+                  placeholder="Patient ID"
+                  value={formData.patientId}
+                  onChange={handleChange}
+                  required
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
+                />
+                <input
+                  type="text"
+                  name="patientName"
+                  placeholder="Patient Name"
+                  value={formData.patientName}
+                  onChange={handleChange}
+                  required
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
+                />
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700 flex items-center">
+                <Building className="w-4 h-4 mr-1" />
+                Provider Information
+              </label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <input
+                  type="text"
+                  name="providerId"
+                  placeholder="Provider ID/Subscript..."
+                  value={formData.providerId}
+                  onChange={handleChange}
+                  required
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
+                />
+                <input
+                  type="text"
+                  name="providerName"
+                  placeholder="Provider eg PulsePal,..."
+                  value={formData.providerName}
+                  onChange={handleChange}
+                  required
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
+                />
+              </div>
+            </div>
+          </>
+        )}
         
         <div className="space-y-2">
           <label className="block text-sm font-medium text-gray-700 flex items-center">
@@ -443,7 +548,7 @@ export const PaymentForm = () => {
                 <select
                   name="currency"
                   value={formData.currency}
-                  onChange={handleChange}
+                  onChange={handleCurrencyChange}
                   className="absolute inset-y-0 left-0 w-16 pl-2 bg-gray-100 rounded-l-md border-r-0 border-gray-300 focus:outline-none focus:ring-0"
                 >
                   {currencies.map(currency => (
@@ -513,7 +618,7 @@ export const PaymentForm = () => {
             disabled={loading}
             className="w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-md shadow-sm text-white bg-violet-600 hover:bg-violet-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-violet-500 disabled:bg-violet-300"
           >
-            {loading ? 'Processing...' : `Pay ${formData.amount ? `${currencies.find(c => c.code === formData.currency)?.symbol || ''}${formData.amount}` : ''}`}
+            {loading ? 'Processing...' : `Pay ${formData.amount ? formatAmountWithCurrency(parseFloat(formData.amount), formData.currency) : ''}`}
             {!loading && (
               formData.paymentMethod === 'mobile_money' ? 
                 <Phone className="ml-2 w-4 h-4" /> : 
