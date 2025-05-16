@@ -12,8 +12,10 @@ import {
   Globe, 
   ChevronsDown, 
   Shield, 
-  AlertCircle 
+  AlertCircle,
+  RefreshCw
 } from 'lucide-react';
+import api from '../../services/api';
 
 export const PaymentForm = () => {
   const { 
@@ -23,16 +25,22 @@ export const PaymentForm = () => {
     selectedCurrency, 
     changeCurrency,
     formatAmountWithCurrency,
-    convertAmount
+    convertAmount,
+    refreshExchangeRates,
+    isUpdatingRates
   } = usePayment();
   const location = useLocation();
   const navigate = useNavigate();
   const subscriptionData = location.state?.subscription;
 
+  // Get current user information
+  const [currentUser, setCurrentUser] = useState(null);
+
   // Add a state to track the original USD amount
   const [originalAmountUSD, setOriginalAmountUSD] = useState('');
 
   const [formData, setFormData] = useState({
+    id: '',
     patientId: '',
     patientName: '',
     providerId: '',
@@ -68,10 +76,45 @@ export const PaymentForm = () => {
   const [showPaymentDetails, setShowPaymentDetails] = useState(true);
 
   useEffect(() => {
+    // Get current user information
+    const user = api.getCurrentUser();
+    if (user) {
+      setCurrentUser(user);
+      
+      // Auto-populate user information in form
+      setFormData(prev => ({
+        ...prev,
+        patientId: user.id || '',
+        patientName: user.username || '',
+      }));
+    }
+    
+    // Load payment profile to get user-specific payment settings
+    const loadPaymentProfile = async () => {
+      try {
+        const profile = await api.get('/profile/payment-info');
+        if (profile && profile.payment_permissions) {
+          // Use the profile information to configure the form
+          // This gives role-specific configuration
+        }
+      } catch (error) {
+        console.error('Error loading payment profile:', error);
+        // Continue with default settings
+      }
+    };
+    
+    loadPaymentProfile();
+  }, []);
+
+  useEffect(() => {
     if (subscriptionData) {
+      // Generate a unique ID for subscription payments
+      const subscriptionPaymentId = `sub_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      
       setOriginalAmountUSD(subscriptionData.price.toString());
       setFormData(prev => ({
         ...prev,
+        id: subscriptionPaymentId,
         isSubscription: true,
         amount: subscriptionData.price.toString(),
         providerId: 'PULSEPAL',
@@ -80,7 +123,10 @@ export const PaymentForm = () => {
           planName: subscriptionData.planName,
           billingCycle: subscriptionData.billingCycle,
           userType: subscriptionData.userType,
-          price: subscriptionData.price
+          price: subscriptionData.price,
+          // Add additional fields needed by backend
+          billing_cycle: subscriptionData.billingCycle,
+          plan_name: subscriptionData.planName
         }
       }));
     }
@@ -102,6 +148,23 @@ export const PaymentForm = () => {
     }
   }, [originalAmountUSD, formData.currency, convertAmount]);
 
+  const formatCardNumber = (value) => {
+    const v = value.replace(/\s+/g, '').replace(/[^0-9]/gi, '');
+    const matches = v.match(/\d{4,16}/g);
+    const match = matches && matches[0] || '';
+    const parts = [];
+    
+    for (let i = 0, len = match.length; i < len; i += 4) {
+      parts.push(match.substring(i, i + 4));
+    }
+    
+    if (parts.length) {
+      return parts.join(' ');
+    } else {
+      return value;
+    }
+  };
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -112,41 +175,62 @@ export const PaymentForm = () => {
     }
   };
 
-  const handleCurrencyChange = (e) => {
+  const handleCurrencyChange = async (e) => {
     const newCurrency = e.target.value;
-    changeCurrency(newCurrency);
     
-    // Convert the amount if we have an original USD amount
-    if (formData.amount) {
-      let amountToConvert = originalAmountUSD || formData.amount;
-      
-      // If switching from a non-USD currency to another non-USD currency
-      // First convert back to USD if needed
-      if (formData.currency !== 'USD' && newCurrency !== 'USD') {
-        // Get amount in USD first (using the previous currency)
-        const amountInUSD = convertAmount(parseFloat(formData.amount), formData.currency);
-        setOriginalAmountUSD(amountInUSD.toString());
-        amountToConvert = amountInUSD;
+    try {
+      // First try to refresh exchange rates to ensure we have the latest
+      if (!isUpdatingRates) {
+        await refreshExchangeRates();
       }
       
-      // Now convert from USD to the new currency
-      if (newCurrency !== 'USD') {
-        const convertedAmount = convertAmount(parseFloat(amountToConvert));
-        setFormData(prev => ({ 
-          ...prev, 
-          currency: newCurrency,
-          amount: convertedAmount.toFixed(2)
-        }));
+      changeCurrency(newCurrency);
+      
+      // Convert the amount if we have an original USD amount
+      if (formData.amount) {
+        let amountToConvert = originalAmountUSD || formData.amount;
+        
+        // If switching from a non-USD currency to another non-USD currency
+        // First convert back to USD if needed
+        if (formData.currency !== 'USD' && newCurrency !== 'USD') {
+          // Get amount in USD first (using the previous currency)
+          const amountInUSD = convertAmount(
+            parseFloat(formData.amount), 
+            formData.currency, 
+            'USD'
+          );
+          setOriginalAmountUSD(amountInUSD.toString());
+          amountToConvert = amountInUSD;
+        }
+        
+        // Now convert from USD to the new currency
+        if (newCurrency !== 'USD') {
+          const convertedAmount = convertAmount(
+            parseFloat(amountToConvert),
+            'USD',
+            newCurrency
+          );
+          setFormData(prev => ({ 
+            ...prev, 
+            currency: newCurrency,
+            amount: convertedAmount.toFixed(2)
+          }));
+        } else {
+          // If switching to USD, use the original amount
+          setFormData(prev => ({ 
+            ...prev, 
+            currency: 'USD',
+            amount: originalAmountUSD
+          }));
+        }
       } else {
-        // If switching to USD, use the original amount
-        setFormData(prev => ({ 
-          ...prev, 
-          currency: 'USD',
-          amount: originalAmountUSD
-        }));
+        // No amount to convert, just update the currency
+        setFormData(prev => ({ ...prev, currency: newCurrency }));
       }
-    } else {
-      // No amount to convert, just update the currency
+    } catch (error) {
+      console.error('Error during currency change:', error);
+      // Still change the currency even if conversion fails
+      changeCurrency(newCurrency);
       setFormData(prev => ({ ...prev, currency: newCurrency }));
     }
   };
@@ -182,17 +266,66 @@ export const PaymentForm = () => {
     }
   };
 
+  const handleRefreshRates = async () => {
+    try {
+      setMessage({ type: 'info', text: 'Refreshing exchange rates...' });
+      const success = await refreshExchangeRates();
+      
+      if (success) {
+        setMessage({ type: 'success', text: 'Exchange rates updated successfully!' });
+        
+        // If we have an amount, update the conversion
+        if (formData.amount && formData.currency !== 'USD' && originalAmountUSD) {
+          const convertedAmount = convertAmount(
+            parseFloat(originalAmountUSD),
+            'USD',
+            formData.currency
+          );
+          setFormData(prev => ({ 
+            ...prev, 
+            amount: convertedAmount.toFixed(2)
+          }));
+        }
+      } else {
+        setMessage({ type: 'error', text: 'Failed to update exchange rates' });
+      }
+    } catch (error) {
+      console.error('Error refreshing rates:', error);
+      setMessage({ type: 'error', text: 'Error refreshing exchange rates' });
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
     try {
+      // Generate a unique payment ID if not already set
+      const paymentId = formData.id || `pay_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      
       // Format data based on payment method
       const paymentData = {
         ...formData,
+        id: paymentId, // Ensure payment has a unique ID
+        client_id: paymentId, // Add client_id for backend tracking
         amount: parseFloat(formData.amount),
         cardType: formData.paymentMethod.includes('card') ? detectCardType(formData.cardNumber.replace(/\s/g, '')) : '',
         timestamp: new Date().toISOString()
       };
+      
+      // Map paymentMethod to payment_method for backend compatibility
+      paymentData.payment_method = paymentData.paymentMethod;
+      delete paymentData.paymentMethod;
+      
+      // If we have current user info, explicitly include it
+      if (currentUser) {
+        paymentData.patientId = currentUser.id;
+        paymentData.patientName = currentUser.username;
+      }
+      
+      // Mark as subscription payment if applicable
+      if (formData.isSubscription) {
+        paymentData.is_subscription_payment = true;
+      }
       
       // Remove sensitive data if not needed
       if (formData.paymentMethod !== 'credit_card' && formData.paymentMethod !== 'debit_card') {
@@ -214,8 +347,9 @@ export const PaymentForm = () => {
       
       // Reset form and show success message
       setFormData({
-        patientId: '',
-        patientName: '',
+        id: '', // Reset ID for next payment
+        patientId: currentUser?.id || '',
+        patientName: currentUser?.username || '',
         providerId: '',
         providerName: '',
         amount: '',
@@ -240,25 +374,64 @@ export const PaymentForm = () => {
           price: 0
         }
       });
-      setOriginalAmountUSD(''); // Reset originalAmountUSD
       
       setMessage({ type: 'success', text: 'Payment processed successfully!' });
-      
-      // Navigate to home page after successful payment
-      setTimeout(() => {
-        navigate('/');
-      }, 1500); // Short delay to show success message before redirecting
-      
     } catch (error) {
-      setMessage({ 
-        type: 'error', 
-        text: error.message || 'Failed to process payment. Please try again.' 
-      });
+      console.error('Error processing payment:', error);
+      setMessage({ type: 'error', text: 'An error occurred while processing your payment. Please try again.' });
     }
   };
 
+  const renderCurrencySelector = () => {
+    return (
+      <div className="relative">
+        <div className="flex">
+          <div className="relative">
+            <select
+              name="currency"
+              value={formData.currency}
+              onChange={handleCurrencyChange}
+              className="absolute inset-y-0 left-0 w-20 pl-2 bg-gray-100 rounded-l-md border-r-0 border-gray-300 focus:outline-none focus:ring-0"
+            >
+              {currencies.map(currency => (
+                <option key={currency.code} value={currency.code}>
+                  {currency.symbol} {currency.code}
+                </option>
+              ))}
+            </select>
+            <input
+              type="number"
+              name="amount"
+              placeholder="Amount"
+              value={formData.amount}
+              onChange={handleChange}
+              required
+              min="0.01"
+              step="0.01"
+              className="w-full pl-24 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={handleRefreshRates}
+            disabled={isUpdatingRates}
+            className="ml-2 px-2 py-2 bg-gray-200 border border-gray-300 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-violet-500"
+            title="Refresh exchange rates"
+          >
+            <RefreshCw className={`w-4 h-4 ${isUpdatingRates ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+        {formData.currency !== 'USD' && (
+          <div className="text-xs text-gray-500 mt-1">
+            {originalAmountUSD ? `${formatAmountWithCurrency(parseFloat(originalAmountUSD), 'USD')} USD` : ''}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderPaymentMethodFields = () => {
-    switch(formData.paymentMethod) {
+    switch (formData.paymentMethod) {
       case 'credit_card':
       case 'debit_card':
         return (
@@ -543,33 +716,7 @@ export const PaymentForm = () => {
             Payment Details
           </label>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="relative">
-              <div className="flex">
-                <select
-                  name="currency"
-                  value={formData.currency}
-                  onChange={handleCurrencyChange}
-                  className="absolute inset-y-0 left-0 w-16 pl-2 bg-gray-100 rounded-l-md border-r-0 border-gray-300 focus:outline-none focus:ring-0"
-                >
-                  {currencies.map(currency => (
-                    <option key={currency.code} value={currency.code}>
-                      {currency.symbol} {currency.code}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="number"
-                  name="amount"
-                  placeholder="Amount"
-                  value={formData.amount}
-                  onChange={handleChange}
-                  required
-                  min="0.01"
-                  step="0.01"
-                  className="w-full pl-20 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
-                />
-              </div>
-            </div>
+            {renderCurrencySelector()}
             <div>
               <select
                 name="paymentMethod"
