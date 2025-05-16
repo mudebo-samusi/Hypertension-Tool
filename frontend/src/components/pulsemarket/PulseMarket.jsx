@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useContext } from "react";
 import AuthContext from "../../context/AuthContext";
 import CreatePostForm from "./CreatePostForm";
@@ -18,12 +17,26 @@ const PulseMarket = () => {
     const fetchContent = async () => {
       try {
         setIsLoading(true);
-        // In a real app, these would be separate API endpoints
-        const postsResponse = await api.get("/posts");
-        const adsResponse = await api.get("/ads");
         
-        setPosts(postsResponse.data || []);
-        setAds(adsResponse.data || []);
+        // Get authentication token if required
+        const token = localStorage.getItem('access_token');
+        
+        const postsResponse = await api.get("/api/posts", null, !!token);
+        const adsResponse = await api.get("/api/ads", null, !!token);
+        
+        // Process and validate response data
+        const processedPosts = Array.isArray(postsResponse) ? postsResponse.map(post => ({
+          ...post,
+          createdAt: post.createdAt || new Date().toISOString() // Ensure valid date
+        })) : [];
+        
+        const processedAds = Array.isArray(adsResponse) ? adsResponse.map(ad => ({
+          ...ad,
+          createdAt: ad.createdAt || new Date().toISOString() // Ensure valid date
+        })) : [];
+        
+        setPosts(processedPosts);
+        setAds(processedAds);
       } catch (error) {
         console.error("Error fetching content:", error);
         // For demo, add sample data
