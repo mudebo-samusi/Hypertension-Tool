@@ -1,289 +1,231 @@
-// Updated PaymentContext.jsx
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { PaymentService } from '../../services/PaymentService';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import * as api from '../../services/api';
 import { CurrencyService } from '../../services/CurrencyService';
-import api from '../../services/api';
-import { useNavigate, useLocation } from 'react-router-dom';
 
-// Context to manage payment state throughout the application
-export const PaymentContext = createContext();
+// Create a context
+const PaymentContext = createContext();
 
+// Create a provider component
 export const PaymentProvider = ({ children }) => {
   const [payments, setPayments] = useState([]);
+  const [analyticsData, setAnalyticsData] = useState(null);
+  const [paymentProfile, setPaymentProfile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [currencies, setCurrencies] = useState([]);
-  const [selectedCurrency, setSelectedCurrency] = useState('USD');
-  const navigate = useNavigate();
-  const location = useLocation();
   
-  // Initialize services
-  const currencyService = new CurrencyService();
-  const paymentService = new PaymentService(api, currencyService);
+  // Currency-related state
+  const [currencyService] = useState(() => new CurrencyService());
+  const [selectedCurrency, setSelectedCurrency] = useState('USD');
+  const [currencies, setCurrencies] = useState([]);
+  const [isUpdatingRates, setIsUpdatingRates] = useState(false);
 
-  // Load supported currencies
+  // Initialize currency service and fetch initial rates
   useEffect(() => {
-    const loadCurrencies = () => {
+    const initCurrencyService = async () => {
       try {
-        const supportedCurrencies = currencyService.getSupportedCurrencies();
-        setCurrencies(supportedCurrencies);
-      } catch (err) {
-        console.error('Error loading currencies:', err);
+        setIsUpdatingRates(true);
+        await currencyService.updateExchangeRates();
+        setCurrencies(currencyService.getSupportedCurrencies());
+      } catch (error) {
+        console.error("Error initializing currency service:", error);
+      } finally {
+        setIsUpdatingRates(false);
       }
     };
     
-    loadCurrencies();
-  }, []);
-
-  // Fetch payments from API
-  const fetchPayments = async () => {
-    setLoading(true);
-    try {
-      // Only fetch if authenticated
-      if (!api.isAuthenticated()) {
-        setPayments([]);
-        return;
-      }
-
-      // Use the new getNonSubscriptionPayments method of PaymentService
-      const response = await paymentService.getNonSubscriptionPayments();
-      
-      // Ensure we have an array and format data for our components
-      const formattedPayments = Array.isArray(response) ? response.map(payment => ({
-        id: payment.id || Math.random().toString(36).substr(2, 9),
-        patientName: payment.patient_name || 'Unknown Patient',
-        patientId: payment.patient_id || 'N/A',
-        providerName: payment.provider_name || 'Unknown Provider',
-        providerId: payment.provider_id || 'N/A',
-        amount: parseFloat(payment.amount) || 0,
-        status: payment.status || 'pending',
-        paymentMethod: payment.payment_method || 'unknown',
-        date: payment.payment_date || new Date().toISOString().split('T')[0],
-        currency: payment.currency || 'USD',
-        // Store USD equivalent if available
-        usdAmount: payment.usd_equivalent || null,
-        exchangeRateInfo: payment.exchange_rate_info || null
-      })) : [];
-      
-      setPayments(formattedPayments);
-      setError(null);
-    } catch (err) {
-      console.error('Error fetching payments:', err);
-      setError('Failed to fetch payments');
-      setPayments([]); // Set empty array on error
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Add a new payment with currency conversion
-  const addPayment = async (paymentData) => {
-    setLoading(true);
-    try {
-      // ensure we have a logged‑in user
-      const user = api.getCurrentUser();
-      if (!user) {
-        // Store payment data before redirecting
-        localStorage.setItem('pendingPayment', JSON.stringify(paymentData));
-        setError('Please log in to complete your payment');
-        navigate('/login', { 
-          state: { 
-            returnUrl: window.location.pathname,
-            paymentPending: true 
-          } 
-        });
-        return null; // Return null to indicate auth required
-      }
-
-      // always enrich with current user info
-      const enrichedPaymentData = {
-        ...paymentData,
-        patientId: user.id || '',
-        patientName: user.name || user.username || ''
-      };
-      
-      // Apply selected currency if not already specified
-      if (!enrichedPaymentData.currency) {
-        enrichedPaymentData.currency = selectedCurrency;
-      }
-
-      let response;
-      if (paymentData.isSubscription) {
-        // Process subscription payment
-        // Ensure subscription data has required fields
-        if (!enrichedPaymentData.subscriptionDetails) {
-          enrichedPaymentData.subscriptionDetails = {};
-        }
-        
-        // Ensure billing_cycle is present (default to monthly if not specified)
-        if (!enrichedPaymentData.subscriptionDetails.billing_cycle) {
-          enrichedPaymentData.subscriptionDetails.billing_cycle = 'monthly';
-        }
-        
-        // Ensure plan_name is present
-        if (!enrichedPaymentData.subscriptionDetails.plan_name) {
-          enrichedPaymentData.subscriptionDetails.plan_name = 
-            enrichedPaymentData.subscriptionDetails.plan_name || 
-            `${enrichedPaymentData.subscriptionDetails.billing_cycle} plan`;
-        }
-        
-        // Set default auto-renew to true if not specified
-        if (enrichedPaymentData.subscriptionDetails.auto_renew === undefined) {
-          enrichedPaymentData.subscriptionDetails.auto_renew = true;
-        }
-        
-        // Currency conversion will be handled by the service
-        response = await paymentService.processSubscriptionPayment(enrichedPaymentData);
-      } else {
-        // Process regular payment with all payment methods and currency conversion
-        response = await paymentService.createPayment(enrichedPaymentData);
-      }
-
-      // Ensure response is an object with basic required fields
-      const validResponse = response && typeof response === 'object' ? response : {
-        id: Math.random().toString(36).substr(2, 9),
-        amount: enrichedPaymentData.amount,
-        status: 'completed',
-        currency: enrichedPaymentData.currency || 'USD'
-      };
-
-      // Format the new payment response to match our component expectations
-      const formattedPayment = {
-        id: validResponse.id || Math.random().toString(36).substr(2, 9),
-        patientName: enrichedPaymentData.patientName,
-        patientId: enrichedPaymentData.patientId,
-        providerName: enrichedPaymentData.providerName,
-        providerId: enrichedPaymentData.providerId,
-        amount: parseFloat(validResponse.amount || enrichedPaymentData.amount),
-        status: validResponse.status || 'completed',
-        paymentMethod: enrichedPaymentData.paymentMethod,
-        date: validResponse.payment_date || new Date().toISOString().split('T')[0],
-        currency: validResponse.currency || enrichedPaymentData.currency || 'USD',
-        paymentDetails: validResponse.payment_details || {},
-        // Store exchange rate info if available
-        usdAmount: validResponse.usd_equivalent || null,
-        exchangeRateInfo: validResponse.exchange_rate_info || null
-      };
-
-      setPayments(prev => [...prev, formattedPayment]);
-      return validResponse;
-    } catch (err) {
-      console.error('Payment processing error:', err);
-      setError(`Failed to process payment: ${err.message || 'Unknown error'}`);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Process any pending payment after login
-  const processPendingPayment = async () => {
-    const pendingPaymentData = localStorage.getItem('pendingPayment');
+    initCurrencyService();
     
-    if (pendingPaymentData && api.isAuthenticated()) {
+    // Set up periodic refresh of exchange rates (every hour)
+    const refreshInterval = setInterval(async () => {
       try {
-        const paymentData = JSON.parse(pendingPaymentData);
-        localStorage.removeItem('pendingPayment');
-        
-        // Process the pending payment
-        const result = await addPayment(paymentData);
-        
-        // Navigate to home page after success, but clear the state first
-        if (result) {
-          // Clear the paymentPending state to avoid navigation loops
-          navigate('/', { 
-            replace: true,
-            state: {} // Clear previous state
-          });
-          return true;
-        }
-      } catch (err) {
-        console.error('Failed to process pending payment:', err);
-        setError('Failed to complete your pending payment');
+        setIsUpdatingRates(true);
+        await currencyService.updateExchangeRates();
+      } catch (error) {
+        console.error("Error refreshing exchange rates:", error);
+      } finally {
+        setIsUpdatingRates(false);
       }
-    }
-    return false;
-  };
+    }, 60 * 60 * 1000); // Refresh every hour
+    
+    return () => clearInterval(refreshInterval);
+  }, [currencyService]);
 
-  // Change the selected currency
-  const changeCurrency = (currencyCode) => {
-    // Validate that the currency is supported
-    const isSupported = currencies.some(currency => currency.code === currencyCode);
-    if (isSupported) {
-      setSelectedCurrency(currencyCode);
-      return true;
-    } else {
-      setError(`Currency ${currencyCode} is not supported`);
-      return false;
-    }
-  };
-
-  // Convert an amount to the currently selected currency
-  const convertAmount = (amount, fromCurrency = 'USD') => {
-    try {
-      if (fromCurrency === selectedCurrency) {
-        return amount;
-      }
-      
-      // First convert to USD if not already
-      let amountInUSD = amount;
-      if (fromCurrency !== 'USD') {
-        amountInUSD = currencyService.convertToUSD(amount, fromCurrency);
-      }
-      
-      // Then convert from USD to selected currency
-      if (selectedCurrency !== 'USD') {
-        return currencyService.convertFromUSD(amountInUSD, selectedCurrency);
-      }
-      
-      return amountInUSD;
-    } catch (err) {
-      console.error('Currency conversion error:', err);
-      return amount; // Return original amount on error
-    }
-  };
-
-  // Format an amount with the currency symbol
-  const formatAmountWithCurrency = (amount, currencyCode = selectedCurrency) => {
-    try {
-      return currencyService.formatAmountWithCurrency(amount, currencyCode);
-    } catch (err) {
-      console.error('Currency formatting error:', err);
-      return `${amount} ${currencyCode}`; // Fallback formatting
-    }
-  };
-
-  // Check for pending payments when component mounts or location changes
-  useEffect(() => {
-    const loginRedirect = location.state?.paymentPending;
-    if (loginRedirect) {
-      processPendingPayment();
-    }
-  }, [location.state?.paymentPending]); // Only depend on the specific flag
-
-  useEffect(() => {
-    fetchPayments();
+  // Function to change the selected currency
+  const changeCurrency = useCallback((currencyCode) => {
+    setSelectedCurrency(currencyCode);
   }, []);
+
+  // Function to format amount with currency symbol
+  const formatAmountWithCurrency = useCallback((amount, currencyCode = selectedCurrency) => {
+    return currencyService.formatAmountWithCurrency(amount, currencyCode);
+  }, [selectedCurrency, currencyService]);
+
+  // Function to convert amount between currencies
+  const convertAmount = useCallback((amount, fromCurrency = 'USD', toCurrency = selectedCurrency) => {
+    if (fromCurrency === toCurrency) return amount;
+    
+    try {
+      if (fromCurrency === 'USD') {
+        return currencyService.convertFromUSD(amount, toCurrency);
+      } else if (toCurrency === 'USD') {
+        return currencyService.convertToUSD(amount, fromCurrency);
+      } else {
+        // Convert from source to USD, then USD to target
+        const amountInUSD = currencyService.convertToUSD(amount, fromCurrency);
+        return currencyService.convertFromUSD(amountInUSD, toCurrency);
+      }
+    } catch (error) {
+      console.error("Error converting amount:", error);
+      return amount; // Return original amount if conversion fails
+    }
+  }, [selectedCurrency, currencyService]);
+
+  // Manually refresh exchange rates
+  const refreshExchangeRates = useCallback(async () => {
+    try {
+      setIsUpdatingRates(true);
+      await currencyService.updateExchangeRates();
+      return true;
+    } catch (error) {
+      console.error("Error refreshing exchange rates:", error);
+      return false;
+    } finally {
+      setIsUpdatingRates(false);
+    }
+  }, [currencyService]);
+
+  // Fetch payments list using dedicated endpoint
+  const fetchPaymentList = useCallback(async (includeSubscriptions = false) => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const paymentList = await api.getPaymentList(includeSubscriptions);
+      setPayments(paymentList);
+      
+      return paymentList;
+    } catch (error) {
+      console.error("Error fetching payment list:", error);
+      setError(error.message || "Failed to load payments");
+      return [];
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Fetch analytics data using dedicated endpoint
+  const fetchPaymentAnalytics = useCallback(async (includeSubscriptions = false) => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const analytics = await api.getPaymentAnalytics(includeSubscriptions);
+      setAnalyticsData(analytics);
+      
+      return analytics;
+    } catch (error) {
+      console.error("Error fetching payment analytics:", error);
+      setError(error.message || "Failed to load analytics");
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Fetch payment profile
+  const fetchPaymentProfile = useCallback(async () => {
+    try {
+      setLoading(true);
+      const profile = await api.getPaymentProfile();
+      setPaymentProfile(profile);
+      return profile;
+    } catch (error) {
+      console.error("Error fetching payment profile:", error);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Create a payment with enhanced currency support
+  const createPayment = useCallback(async (paymentData) => {
+    try {
+      setLoading(true);
+      
+      // Apply currency conversion if needed
+      if (paymentData.currency !== 'USD') {
+        // Store original amount and currency
+        paymentData.originalCurrency = paymentData.currency;
+        paymentData.originalAmount = paymentData.amount;
+        
+        // Calculate USD equivalent for backend
+        paymentData.usdAmount = convertAmount(
+          parseFloat(paymentData.amount),
+          paymentData.currency,
+          'USD'
+        );
+      }
+      
+      const newPayment = await api.createPayment(paymentData);
+      
+      // Update payments list with new payment
+      setPayments(prevPayments => [newPayment, ...prevPayments]);
+      
+      // Refresh analytics after creating a payment
+      fetchPaymentAnalytics();
+      
+      return newPayment;
+    } catch (error) {
+      console.error("Error creating payment:", error);
+      setError(error.message || "Failed to create payment");
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchPaymentAnalytics, convertAmount]);
+
+  // Add an alias for createPayment as addPayment for backward compatibility
+  const addPayment = useCallback((paymentData) => {
+    return createPayment(paymentData);
+  }, [createPayment]);
+
+  // Initialize by fetching profile
+  const initialize = useCallback(async () => {
+    await fetchPaymentProfile();
+  }, [fetchPaymentProfile]);
 
   return (
-    <PaymentContext.Provider
-      value={{
-        payments,
-        loading,
-        error,
-        fetchPayments,
-        addPayment,
-        processPendingPayment,
-        currencies,
-        selectedCurrency,
-        changeCurrency,
-        convertAmount,
-        formatAmountWithCurrency
-      }}
-    >
+    <PaymentContext.Provider value={{
+      payments,
+      analyticsData,
+      paymentProfile,
+      loading,
+      error,
+      fetchPaymentList,
+      fetchPaymentAnalytics,
+      fetchPaymentProfile,
+      createPayment,
+      addPayment, // Add this to the context
+      initialize,
+      // Currency-related functionality
+      currencies,
+      selectedCurrency,
+      changeCurrency,
+      formatAmountWithCurrency,
+      convertAmount,
+      refreshExchangeRates,
+      isUpdatingRates
+    }}>
       {children}
     </PaymentContext.Provider>
   );
 };
 
-export const usePayment = () => useContext(PaymentContext);
+// Custom hook for using the payment context
+export const usePayment = () => {
+  const context = useContext(PaymentContext);
+  if (!context) {
+    throw new Error('usePayment must be used within a PaymentProvider');
+  }
+  return context;
+};
