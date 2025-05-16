@@ -15,8 +15,7 @@ export class CurrencyService {
         { code: 'RWF', symbol: 'FRw', name: 'Rwandan Franc' }
       ];
   
-      // Exchange rates relative to USD
-      // These should ideally be fetched from an API
+      // Initialize exchange rates relative to USD
       this.exchangeRates = {
         'USD': 1.0,
         'EUR': 0.93,
@@ -29,6 +28,12 @@ export class CurrencyService {
         'UGX': 3763.71,
         'RWF': 1296.61
       };
+      
+      // Initialize the last updated timestamp
+      this.lastUpdated = null;
+      
+      // Fetch the latest rates on initialization
+      this.updateExchangeRates();
     }
   
     // Get all supported currencies
@@ -110,17 +115,51 @@ export class CurrencyService {
     // Update exchange rates (would be called periodically or on demand)
     async updateExchangeRates() {
       try {
-        // In a real implementation, you would fetch updated rates from an API
-        // For example:
-        // const response = await fetch('https://api.exchangerate-api.com/v4/latest/USD');
-        // const data = await response.json();
-        // this.exchangeRates = data.rates;
+        // Use ExchangeRate-API as the source for exchange rates
+        // This is a free API with reasonable rate limits
+        const response = await fetch('https://open.er-api.com/v6/latest/USD');
         
-        console.log('Exchange rates updated');
-        return true;
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.result === 'success') {
+          // Update rates with the latest values
+          this.exchangeRates = { 'USD': 1.0 };
+          
+          // Only store rates for our supported currencies
+          this.currencies.forEach(currency => {
+            if (data.rates[currency.code]) {
+              this.exchangeRates[currency.code] = data.rates[currency.code];
+            }
+          });
+          
+          // Update the timestamp
+          this.lastUpdated = new Date();
+          console.log('Exchange rates updated successfully', this.exchangeRates);
+          return true;
+        } else {
+          throw new Error('Failed to fetch exchange rates');
+        }
       } catch (error) {
         console.error('Failed to update exchange rates:', error);
+        // Keep using the existing rates if the API fails
         return false;
       }
+    }
+    
+    // Get the last time the rates were updated
+    getLastUpdated() {
+      return this.lastUpdated;
+    }
+    
+    // Check if rates need to be refreshed (older than 1 hour)
+    needsRefresh() {
+      if (!this.lastUpdated) return true;
+      
+      const oneHour = 60 * 60 * 1000; // 1 hour in milliseconds
+      return (new Date() - this.lastUpdated) > oneHour;
     }
   }
