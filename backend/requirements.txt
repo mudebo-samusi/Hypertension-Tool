@@ -67,3 +67,6 @@ flask_jwt_extended
 flask_mail
 pflask-socketio
 eventlet
+flask_limiter
+flask-script
+flask-migrate
