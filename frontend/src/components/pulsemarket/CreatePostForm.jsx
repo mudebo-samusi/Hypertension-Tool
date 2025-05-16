@@ -1,5 +1,4 @@
-
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useRef } from 'react';
 import AuthContext from '../../context/AuthContext';
 import api from '../../services/api';
 
@@ -12,69 +11,104 @@ const CreatePostForm = ({ onPostCreated, onCancel }) => {
   const [isAd, setIsAd] = useState(false);
   const [adTitle, setAdTitle] = useState('');
   const [adLink, setAdLink] = useState('');
-  const [adImage, setAdImage] = useState('');
+  const [adImage, setAdImage] = useState(null);
+  const [previewImage, setPreviewImage] = useState('');
+  const fileInputRef = useRef(null);
+
+  const handleImageChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setAdImage(file);
+      // Create preview URL
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPreviewImage(reader.result);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      setAdImage(null);
+      setPreviewImage('');
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
     if (!content.trim()) {
       setError('Content cannot be empty');
+      return;
+    }
+    
+    if (isAd && !adTitle.trim()) {
+      setError('Ad title cannot be empty');
       return;
     }
     
     try {
       setIsSubmitting(true);
       setError('');
+      let response;
+      const currentUser = api.getCurrentUser();
       
-      // In a real app, you would post to your backend
-      // const response = await api.post("/posts", { content });
-      
-      // For demo, we'll create mock data
-      const newPost = {
-        id: Date.now(),
-        author: {
-          id: user.id,
-          name: user.name || 'Current User',
-          avatar: user.avatar || 'https://via.placeholder.com/40'
-        },
-        content: content,
-        createdAt: new Date().toISOString(),
-        likes: 0,
-        comments: 0,
-        userLiked: false
-      };
-
-      // If this is an ad, add the ad-specific fields
       if (isAd) {
-        // In a real app, you'd post to a different endpoint
-        // const adResponse = await api.post("/ads", { content, title: adTitle, link: adLink, image: adImage });
+        // Use FormData for ads with image upload
+        const formData = new FormData();
+        formData.append('title', adTitle);
+        formData.append('content', content);
+        formData.append('link', adLink || '#');
+        if (adImage) {
+          formData.append('image', adImage);
+        }
+        response = await api.createAd(formData);
         
-        const newAd = {
-          id: Date.now(),
-          sponsor: user.name || 'Current User',
-          title: adTitle,
-          content: content,
-          image: adImage || 'https://via.placeholder.com/300x150',
-          link: adLink || '#',
-          createdAt: new Date().toISOString(),
+        // Format the ad properly if needed
+        const adResponse = {
+          ...response,
+          userLiked: false,
           likes: 0,
           comments: 0,
-          userLiked: false
+          // Add missing fields if needed
+          sponsor: response.sponsor || currentUser?.username || 'User',
+          sponsorProfileImage: response.sponsorProfileImage || currentUser?.profile_image,
+          createdAt: response.createdAt || new Date().toISOString()
         };
         
-        onPostCreated(newAd);
+        onPostCreated(adResponse);
       } else {
-        onPostCreated(newPost);
+        response = await api.createPost(content);
+        
+        // Format the post properly for display
+        const postResponse = {
+          ...response,
+          content: content,
+          userLiked: false,
+          likes: 0,
+          comments: 0,
+          createdAt: new Date().toISOString(),
+          author: {
+            id: currentUser?.id,
+            name: currentUser?.username || 'User',
+            avatar: currentUser?.profile_image
+          }
+        };
+        
+        onPostCreated(postResponse);
       }
       
+      // Reset form
       setContent('');
       setAdTitle('');
       setAdLink('');
-      setAdImage('');
+      setAdImage(null);
+      setPreviewImage('');
       setIsAd(false);
+      setShowAdOptions(false);
     } catch (err) {
       console.error('Error creating post:', err);
-      setError('Failed to create post. Please try again.');
+      if (err.response?.status === 405) {
+        setError('The requested method is not allowed. Please contact support.');
+      } else {
+        setError(err.message || 'Failed to create post. Please try again.');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -133,16 +167,32 @@ const CreatePostForm = ({ onPostCreated, onCancel }) => {
           
           <div>
             <label htmlFor="adImage" className="block text-sm font-medium text-gray-700 mb-1">
-              Image URL
+              Ad Image
             </label>
             <input
-              type="url"
+              type="file"
               id="adImage"
-              value={adImage}
-              onChange={(e) => setAdImage(e.target.value)}
+              ref={fileInputRef}
+              accept="image/*"
+              onChange={handleImageChange}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-              placeholder="https://example.com/image.jpg"
             />
+            {previewImage && (
+              <div className="mt-2">
+                <img src={previewImage} alt="Preview" className="h-32 object-cover rounded-lg" />
+                <button 
+                  type="button" 
+                  className="mt-1 text-red-500 text-sm"
+                  onClick={() => {
+                    setAdImage(null);
+                    setPreviewImage('');
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                  }}
+                >
+                  Remove image
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
