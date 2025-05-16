@@ -47,7 +47,13 @@ function Register() {
         return;
       }
 
-      // Use api.register method
+      // Check for internet connectivity
+      if (!navigator.onLine) {
+        setError('You appear to be offline. Please check your internet connection.');
+        return;
+      }
+
+      // Use api.register method with better error handling
       const response = await api.register(formData);
 
       // Check the success flag in the response
@@ -63,8 +69,14 @@ function Register() {
       }
     } catch (error) {
       console.error('Registration error:', error);
-      // Display error message from the server or a default message
-      setError(error.message || 'Registration failed. Please try again.');
+      
+      // Display a user-friendly error message
+      if (error.message && error.message.includes('Cannot connect to the server')) {
+        setError('Cannot connect to the server. Please check that the backend server is running.');
+      } else {
+        // Display error message from the server or a default message
+        setError(error.message || 'Registration failed. Please try again.');
+      }
     }
   };
 
