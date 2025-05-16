@@ -1,17 +1,33 @@
-
 import React, { useState } from 'react';
+import PropTypes from 'prop-types';
 import LikeButton from './LikeButton';
 import CommentSection from './CommentSection';
 import { formatDistanceToNow } from 'date-fns';
+import api from '../../services/api';
 
-const Post = ({ post, onLikeToggle }) => {
+const Post = ({ post, onLikeToggle, onCommentCountChange }) => {
   const [showComments, setShowComments] = useState(false);
+  const [commentCount, setCommentCount] = useState(post.comments);
+  
+  // Get proper avatar URL with fallback
+  const avatarUrl = post.author.avatar && post.author.avatar.trim() !== '' 
+    ? api.getFullImageUrl(post.author.avatar) 
+    : `https://ui-avatars.com/api/?name=${encodeURIComponent(post.author.name)}&background=8b5cf6&color=fff`;
+  
+  // Handle comment count updates
+  const handleCommentCountChange = (newCount) => {
+    setCommentCount(newCount);
+    // Propagate to parent if needed
+    if (onCommentCountChange) {
+      onCommentCountChange(post.id, newCount);
+    }
+  };
   
   return (
     <div className="bg-white rounded-xl shadow-md p-4 transition hover:shadow-lg">
       <div className="flex items-start space-x-3">
         <img 
-          src={post.author.avatar} 
+          src={avatarUrl} 
           alt={post.author.name} 
           className="w-10 h-10 rounded-full object-cover" 
         />
@@ -28,7 +44,7 @@ const Post = ({ post, onLikeToggle }) => {
             <LikeButton 
               liked={post.userLiked} 
               count={post.likes} 
-              onToggle={onLikeToggle} 
+              onToggle={() => onLikeToggle(post.id)}  // Ensure we're passing the post.id to the handler
             />
             
             <button 
@@ -38,7 +54,7 @@ const Post = ({ post, onLikeToggle }) => {
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
               </svg>
-              <span>{post.comments}</span>
+              <span>{commentCount}</span>
             </button>
             
             <button className="flex items-center space-x-1 hover:text-violet-600 transition">
@@ -51,15 +67,33 @@ const Post = ({ post, onLikeToggle }) => {
           
           {showComments && (
             <CommentSection 
-              postId={post.id} 
+              postId={String(post.id)} // Ensure postId is a string
               postType="post"
-              initialCommentCount={post.comments}
+              initialCommentCount={commentCount}
+              onCommentCountChange={handleCommentCountChange}
             />
           )}
         </div>
       </div>
     </div>
   );
+};
+
+Post.propTypes = {
+  post: PropTypes.shape({
+    id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
+    author: PropTypes.shape({
+      name: PropTypes.string.isRequired,
+      avatar: PropTypes.string,
+    }).isRequired,
+    createdAt: PropTypes.string.isRequired,
+    content: PropTypes.string.isRequired,
+    userLiked: PropTypes.bool,
+    likes: PropTypes.number.isRequired,
+    comments: PropTypes.number.isRequired,
+  }).isRequired,
+  onLikeToggle: PropTypes.func.isRequired,
+  onCommentCountChange: PropTypes.func,
 };
 
 export default Post;
