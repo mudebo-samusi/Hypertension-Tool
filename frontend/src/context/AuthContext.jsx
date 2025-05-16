@@ -1,5 +1,5 @@
 import React from 'react';
-import { createContext, useState } from 'react';
+import { createContext, useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
@@ -14,6 +14,17 @@ export const AuthProvider = ({ children }) => {
     return savedUser ? JSON.parse(savedUser) : null;
   });
 
+  // Set up API auth token whenever user changes
+  useEffect(() => {
+    // Update API authentication headers when token changes
+    const token = localStorage.getItem('access_token');
+    if (token) {
+      api.setAuthToken(token);
+    } else {
+      api.clearAuthToken();
+    }
+  }, [user]);
+
   const login = async (username, password) => {
     try {
       if (!username || !password) {
@@ -22,6 +33,14 @@ export const AuthProvider = ({ children }) => {
       
       const response = await api.login(username, password);
       
+      // Check if user is active before proceeding
+      if (response.user && response.user.hasOwnProperty('is_active') && !response.user.is_active) {
+        return { 
+          success: false, 
+          error: 'Your account is inactive. Please contact support to activate your account.'
+        };
+      }
+      
       // Store user data in state and localStorage
       setUser(response.user);
       localStorage.setItem('user', JSON.stringify(response.user));
@@ -29,6 +48,7 @@ export const AuthProvider = ({ children }) => {
       // Store access token if it exists
       if (response.access_token) {
         localStorage.setItem('access_token', response.access_token);
+        api.setAuthToken(response.access_token); // Update API token immediately
       }
       
       navigate('/'); // Redirect to home page after login
@@ -46,6 +66,7 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
     localStorage.removeItem('access_token');
     localStorage.removeItem('user');
+    api.clearAuthToken(); // Clear API token on logout
     navigate('/login');
   };
 
