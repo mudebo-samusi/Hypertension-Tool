@@ -1,12 +1,16 @@
 // PaymentList.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { usePayment } from './PaymentContext';
 import { FileText, Search, Check, Clock, X, Filter } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import api from '../../services/api';
 
 export const PaymentList = () => {
-  const { payments = [], loading } = usePayment();
+  const { payments, loading, fetchPaymentList } = usePayment();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [showSubscriptions, setShowSubscriptions] = useState(false);
+  const navigate = useNavigate();
   
   const getStatusIcon = (status) => {
     switch(status) {
@@ -20,6 +24,31 @@ export const PaymentList = () => {
         return null;
     }
   };
+
+  useEffect(() => {
+    // First check if user has any payments before setting up polling
+    const checkUserPayments = async () => {
+      const hasPayments = await api.checkUserHasPayments();
+      
+      // Only initiate polling if we don't know or user has payments
+      if (hasPayments !== false) {
+        // Fetch payments initially
+        fetchPaymentList(showSubscriptions);
+        
+        // Set up automatic refresh with reduced frequency
+        const intervalId = setInterval(() => {
+          fetchPaymentList(showSubscriptions);
+        }, 120000); // 2 minutes
+        
+        return () => clearInterval(intervalId);
+      } else {
+        // User has no payments, just fetch once without polling
+        fetchPaymentList(showSubscriptions);
+      }
+    };
+    
+    checkUserPayments();
+  }, [fetchPaymentList, showSubscriptions]);
   
   const filteredPayments = Array.isArray(payments) ? payments.filter(payment => {
     // Guard against missing payment or properties
@@ -35,7 +64,10 @@ export const PaymentList = () => {
       
     const matchesStatus = filterStatus === 'all' || status === filterStatus;
     
-    return matchesSearch && matchesStatus;
+    // Only show subscriptions if explicitly enabled
+    const matchesSubscriptionFilter = showSubscriptions || !payment.isSubscription;
+    
+    return matchesSearch && matchesStatus && matchesSubscriptionFilter;
   }) : [];
 
   return (
@@ -69,6 +101,21 @@ export const PaymentList = () => {
             <option value="pending">Pending</option>
             <option value="failed">Failed</option>
           </select>
+        </div>
+        
+        <div className="relative w-full md:w-1/4">
+          <div className="flex items-center">
+            <input
+              type="checkbox"
+              id="show-subscriptions"
+              checked={showSubscriptions}
+              onChange={(e) => setShowSubscriptions(e.target.checked)}
+              className="mr-2 h-4 w-4 text-violet-600 rounded focus:ring-violet-500"
+            />
+            <label htmlFor="show-subscriptions" className="text-sm text-gray-700">
+              Include Subscriptions
+            </label>
+          </div>
         </div>
       </div>
       
@@ -123,7 +170,16 @@ export const PaymentList = () => {
           </table>
         </div>
       ) : (
-        <div className="text-center py-4 text-gray-500">No payments found</div>
+        <div className="text-center py-8 bg-gray-50 rounded-lg">
+          <h3 className="text-lg font-medium text-gray-700 mb-2">No Payment Records Found</h3>
+          <p className="text-gray-500 mb-4">You don't have any payment records in the system yet.</p>
+          <button 
+            onClick={() => navigate('/payments/new')} 
+            className="px-4 py-2 bg-violet-600 text-white rounded-md hover:bg-violet-700 transition"
+          >
+            Create New Payment
+          </button>
+        </div>
       )}
     </div>
   );
