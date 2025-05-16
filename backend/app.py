@@ -6,6 +6,7 @@ from flask_login import LoginManager, UserMixin, login_user, logout_user, login_
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity, create_refresh_token
 from flask_mail import Mail, Message
 from itsdangerous import URLSafeTimedSerializer
+from flask_migrate import Migrate  # Add this import
 import joblib
 import numpy as np
 import pandas as pd
@@ -30,6 +31,17 @@ from models.subscription import Subscription
 from models.payments import Payment
 # Import SubscriptionService after all models are defined
 from services.SubService import SubscriptionService
+
+# Add rate limiting to protect against abuse
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+# Import blueprints for posts and ads
+from routes.posts import posts_bp
+from routes.ads import ads_bp
+from routes.comments import comments_bp
+from routes.likes import likes_bp
+from routes.profile import profile_bp
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -57,6 +69,13 @@ CORS(app,
 # Add debug logging
 logging.basicConfig(level=logging.DEBUG)
 
+# Initialize limiter
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"]
+)
+
 # Initialize extensions
 bcrypt = Bcrypt(app)
 login_manager = LoginManager(app)
@@ -67,7 +86,16 @@ serializer = URLSafeTimedSerializer(app.config["SECRET_KEY"])
 # Initialize database using the new function
 with app.app_context():
     init_db(app)
+    migrate = Migrate(app, db)  # Add this line to initialize Flask-Migrate
     db.create_all()
+
+# Register blueprints
+app.register_blueprint(posts_bp)
+app.register_blueprint(ads_bp)
+app.register_blueprint(comments_bp)
+app.register_blueprint(likes_bp)
+app.register_blueprint(profile_bp)
+
 
 # Add JWT error handler
 @jwt.invalid_token_loader
@@ -85,6 +113,16 @@ def unauthorized_callback(error_string):
         'msg': 'Missing Authorization header',
         'error': error_string
     }), 401
+
+@app.before_request
+def handle_options_request():
+    if request.method == 'OPTIONS':
+        response = jsonify({'message': 'CORS preflight request successful'})
+        response.headers['Access-Control-Allow-Origin'] = request.headers.get('Origin', '*')
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        response.headers['Access-Control-Allow-Credentials'] = 'true'
+        return response, 200
 
 # Handler for health data received from MQTT
 def handle_mqtt_health_data(data):
@@ -196,7 +234,7 @@ def get_profile():
     # Convert string ID back to integer
     user_id = int(get_jwt_identity())
     
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
     if not user:
         return jsonify({"error": "User not found."}), 404
         
@@ -212,10 +250,77 @@ def get_profile():
     
     return jsonify(profile_data), 200
 
+# Add missing payment profile endpoint
+@app.route("/profile/payment-info", methods=["GET"])
+@jwt_required()
+def get_payment_profile():
+    try:
+        user_id = int(get_jwt_identity())
+        user = db.session.get(User, user_id)
+        
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+            
+        # Check if user has any payments at all
+        # Expanded to search any relationship to the user (not just direct ids)
+        has_payments = db.session.query(Payment).filter(
+            db.or_(
+                Payment.user_id == user_id,
+                Payment.patient_id == user_id,
+                Payment.provider_id == user_id,
+                Payment.patient_name == user.username,
+                Payment.provider_name == user.username
+            )
+        ).limit(1).count() > 0
+        
+        # Get payment statistics
+        total_payments = 0
+        completed_payments = 0
+        pending_payments = 0
+        subscription_payments = 0
+        
+        if has_payments:
+            # Only count if payments exist for this user
+            payment_query = Payment.query.filter(
+                db.or_(
+                    Payment.user_id == user_id,
+                    Payment.patient_id == user_id,
+                    Payment.provider_id == user_id,
+                    Payment.patient_name == user.username, 
+                    Payment.provider_name == user.username
+                )
+            )
+            
+            total_payments = payment_query.count()
+            completed_payments = payment_query.filter_by(status="completed").count()
+            pending_payments = payment_query.filter_by(status="pending").count()
+            subscription_payments = payment_query.filter_by(is_subscription_payment=True).count()
+
+        # Get user's active subscription
+        active_subscription = None
+        subscription = Subscription.query.filter_by(user_id=user_id, status="active").first()
+        if subscription:
+            active_subscription = subscription.to_dict()
+            
+        return jsonify({
+            "has_payments": has_payments,
+            "payment_stats": {
+                "total_payments": total_payments,
+                "completed_payments": completed_payments,
+                "pending_payments": pending_payments,
+                "subscription_payments": subscription_payments
+            },
+            "active_subscription": active_subscription,
+            "username": user.username
+        }), 200
+    except Exception as e:
+        logging.error(f"Error fetching payment profile: {e}")
+        return jsonify({"error": f"Failed to fetch payment profile: {str(e)}"}), 500
+
 # User loader for Flask-Login
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    return db.session.get(User, int(user_id))
 
 # Register endpoint
 @app.route('/register', methods=['POST'])
@@ -289,41 +394,67 @@ login_manager.needs_refresh_message_category = "warning"
 # Enable "remember me" functionality
 @app.route("/login", methods=["POST"])
 def login():
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": "No JSON data provided."}), 400
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No JSON data provided."}), 400
 
-    username = data.get("username")
-    password = data.get("password")
-    remember = data.get("remember", False)
+        username = data.get("username")
+        password = data.get("password")
+        remember = data.get("remember", True)
 
-    # Check that the user exists
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        return jsonify({"error": "User not found."}), 404
+        # Logging for debugging
+        logging.debug(f"Login attempt for user: {username}")
 
-    # Verify password using Werkzeug
-    if not check_password_hash(user.password, password):
-        return jsonify({"error": "Invalid username or password."}), 401
+        # First, try to get the user without the is_active field
+        user = User.query.filter_by(username=username).first()
+        
+        if not user:
+            logging.warning(f"Login failed - User not found: {username}")
+            return jsonify({"error": "User not found."}), 404
 
-    # Log in via Flask-Login
-    login_user(user, remember=remember)
+        # Verify password using Werkzeug
+        if not check_password_hash(user.password, password):
+            logging.warning(f"Login failed - Invalid password for user: {username}")
+            return jsonify({"error": "Invalid username or password."}), 401
+            
+        # Check if user is active - safely access the attribute
+        if hasattr(user, 'is_active') and not user.is_active:
+            logging.warning(f"Login failed - Inactive account for user: {username}")
+            return jsonify({"error": "Your account is not active. Please contact support."}), 403
 
-    # Generate JWT tokens
-    expires_delta = datetime.timedelta(days=30) if remember else datetime.timedelta(hours=1)
-    access_token = create_access_token(identity=str(user.id), expires_delta=expires_delta)
-    refresh_token = create_refresh_token(identity=str(user.id))
+        # Log in via Flask-Login
+        login_user(user, remember=remember)
 
-    return jsonify({
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "user": {
+        # Generate JWT tokens
+        expires_delta = datetime.timedelta(days=30) if remember else datetime.timedelta(hours=1)
+        access_token = create_access_token(identity=str(user.id), expires_delta=expires_delta)
+        refresh_token = create_refresh_token(identity=str(user.id))
+
+        logging.info(f"User {username} logged in successfully")
+        
+        # Create user data dictionary with basic fields
+        user_data = {
             "id": user.id,
             "username": user.username,
             "email": user.email,
             "role": user.role
         }
-    }), 200
+        
+        # Only add is_active if it exists
+        if hasattr(user, 'is_active'):
+            user_data["is_active"] = user.is_active
+        else:
+            user_data["is_active"] = True  # Default to active if field doesn't exist
+            
+        return jsonify({
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "user": user_data
+        }), 200
+    except Exception as e:
+        logging.error(f"Error during login: {str(e)}")
+        return jsonify({"error": f"Login failed: {str(e)}"}), 500
 
 # Add token verification endpoint
 @app.route("/verify-token", methods=["GET"])
@@ -331,7 +462,7 @@ def login():
 def verify_token():
     # Convert string ID back to integer
     current_user_id = int(get_jwt_identity())
-    user = User.query.get(current_user_id)
+    user = db.session.get(User, current_user_id)
     
     if not user:
         return jsonify({"valid": False}), 401
@@ -352,7 +483,7 @@ def verify_token():
 def protected():
     # Convert string ID back to integer
     current_user_id = int(get_jwt_identity())
-    user = User.query.get(current_user_id)
+    user = db.session.get(User, current_user_id)
     
     if not user:
         return jsonify({"error": "User not found"}), 404
@@ -563,22 +694,41 @@ def create_review():
 
 @app.route("/subscriptions/new", methods=["POST"])
 @jwt_required()
+@limiter.limit("10/minute")  # More restrictive rate limit for subscription creation
 def create_subscription():
     try:
         data = request.json
         user_id = int(get_jwt_identity())
+        user = User.query.get(user_id)
         
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+            
+        # Check if user role is eligible for subscription
+        if user.role not in ["Patient", "Doctor", "Organization"]:
+            return jsonify({"error": f"Users with role '{user.role}' cannot subscribe"}), 400
+        
+        # Create subscription with SubscriptionService
         subscription, payment = SubscriptionService.create_subscription(
             user_id,
             data['subscription'],
             data['payment']
         )
         
+        # Update payment to indicate it's a subscription payment
+        payment_record = Payment.query.get(payment['id']) if payment and 'id' in payment else None
+        if payment_record:
+            payment_record.is_subscription_payment = True
+            payment_record.patient_name = user.username
+            payment_record.client_id = data['payment'].get('client_id', f"sub_{subscription['id']}_{datetime.datetime.now().timestamp()}")
+            db.session.commit()
+        
         return jsonify({
             'subscription': subscription,
             'payment': payment
         }), 201
     except Exception as e:
+        db.session.rollback()
         return jsonify({'error': str(e)}), 400
 
 @app.route("/subscriptions/active", methods=["GET"])
@@ -605,85 +755,313 @@ def cancel_subscription(subscription_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
-# Add payment endpoints
+# Enhanced payment creation endpoint with role-based validation
 @app.route("/payments", methods=["POST"])
 @jwt_required()
+@limiter.limit("30/minute")
 def create_payment():
     try:
         data = request.json
         user_id = int(get_jwt_identity())
+        user = db.session.get(User, user_id)
         
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+            
         # Validate payment method
         payment_method = data.get('payment_method')
         if not payment_method or payment_method not in Payment.SUPPORTED_METHODS:
             return jsonify({"error": f"Unsupported payment method. Supported methods: {', '.join(Payment.SUPPORTED_METHODS)}"}), 400
         
-        # Validate payment details based on method
-        payment_details = data.get('payment_details', {})
+        # Get user info for enriching payment data
+        patient_id = data.get('patient_id', user_id)
         
-        # Create new payment record
+        # Handle provider_id based on role
+        provider_id = data.get('provider_id')
+        if user.role in ["Doctor", "Organization"] and not provider_id:
+            # If user is a provider and no provider_id specified, use their own ID
+            provider_id = user_id
+        
+        # Validate that the patient/provider exists if IDs are provided
+        if patient_id and patient_id != user_id and not User.query.get(patient_id):
+            return jsonify({"error": "Patient not found"}), 404
+            
+        if provider_id and not User.query.get(provider_id):
+            return jsonify({"error": "Provider not found"}), 404
+            
+        # Create new payment record with only columns that exist in the database
+        # Omitting patient_name and provider_name which are causing the error
         payment = Payment(
             amount=data['amount'],
             currency=data.get('currency', 'USD'),
             payment_method=payment_method,
-            patient_id=data.get('patient_id', user_id),
-            provider_id=data['provider_id'],
-            status="Payment completed",
+            patient_id=patient_id,
+            provider_id=provider_id,
+            status="completed",
             payment_date=datetime.datetime.now(),
             user_id=user_id,
-            payment_details=payment_details
+            payment_details=data.get('payment_details', {}),
+            # patient_name and provider_name removed
+            client_id=data.get('client_id'),
+            is_subscription_payment=data.get('is_subscription_payment', False)
         )
         
         db.session.add(payment)
         db.session.commit()
         
-        return jsonify(payment.to_dict()), 201
+        # For the response, manually add the names that aren't stored in DB
+        response_data = payment.to_dict()
+        # Add names for display purposes (not stored in DB)
+        response_data['patient_name'] = user.username if patient_id == user_id else None
+        response_data['provider_name'] = data.get('provider_name')
+        
+        return jsonify(response_data), 201
     except Exception as e:
         db.session.rollback()
         logging.error(f"Error creating payment: {e}")
         return jsonify({"error": f"Failed to create payment: {str(e)}"}), 500
 
+# Updated endpoint to get payments with role-based filtering and session management
 @app.route("/payments", methods=["GET"])
 @jwt_required()
+@limiter.limit("300/minute")  # Increased limit from previous fix
 def get_payments():
     try:
+        # Check session first to avoid redundant queries
         user_id = int(get_jwt_identity())
-        user = User.query.get(user_id)
         
-        # Determine which payments to return based on user role
-        if user.role == "Patient":
-            payments = Payment.query.filter_by(patient_id=user_id).all()
-        elif user.role in ["Doctor", "Organization"]:
-            payments = Payment.query.filter_by(provider_id=user_id).all()
-        elif user.role == "Admin":
-            payments = Payment.query.all()
-        else:
-            payments = []
+        # Use request session to cache results
+        session_key = f'payments_for_user_{user_id}'
+        if session_key in request.environ.get('werkzeug.request.session', {}):
+            # Use cached response if available within the same session
+            return request.environ['werkzeug.request.session'][session_key]
+        
+        user = db.session.get(User, user_id)
+        
+        if not user:
+            return jsonify({"error": "User not found"}), 404
             
-        return jsonify([payment.to_dict() for payment in payments]), 200
+        # First check quickly if user has any payments to avoid unnecessary processing
+        has_payments = db.session.query(Payment).filter(
+            db.or_(
+                Payment.user_id == user_id,
+                Payment.patient_id == user_id,
+                Payment.provider_id == user_id,
+                Payment.patient_name == user.username,
+                Payment.provider_name == user.username
+            )
+        ).limit(1).count() > 0
+        
+        if not has_payments:
+            # Return early with a flag indicating no payments exist
+            empty_response = jsonify({
+                "payments": [],
+                "has_payments": False,
+                "message": "No payment records found for this user."
+            })
+            
+            # Cache empty response in session
+            if 'werkzeug.request.session' not in request.environ:
+                request.environ['werkzeug.request.session'] = {}
+            request.environ['werkzeug.request.session'][session_key] = empty_response
+            
+            return empty_response
+
+        # Get include_subscriptions parameter with default to True
+        include_subscriptions = request.args.get('include_subscriptions', 'true').lower() == 'true'
+        
+        # Base query for payments - expanded to check name fields too
+        query = Payment.query.filter(
+            db.or_(
+                Payment.user_id == user_id,
+                Payment.patient_id == user_id, 
+                Payment.provider_id == user_id,
+                Payment.patient_name == user.username,
+                Payment.provider_name == user.username
+            )
+        )
+                
+        # Filter by subscription status if requested
+        if not include_subscriptions:
+            query = query.filter_by(is_subscription_payment=False)
+
+        payments = query.all()
+        
+        # Convert to list of dicts with additional user information
+        payment_list = []
+        for payment in payments:
+            payment_dict = payment.to_dict()
+            
+            # Add patient name if available but not already set
+            if payment.patient_id and not payment_dict.get('patient_name'):
+                patient = db.session.get(User, payment.patient_id)
+                if patient:
+                    payment_dict['patient_name'] = patient.username
+            
+            # Add provider name if available but not already set
+            if payment.provider_id and not payment_dict.get('provider_name'):
+                provider = db.session.get(User, payment.provider_id)
+                if provider:
+                    payment_dict['provider_name'] = provider.username
+                    
+            payment_list.append(payment_dict)
+            
+        response = jsonify({
+            "payments": payment_list,
+            "has_payments": True
+        })
+        
+        # Cache response in session to minimize repeated identical queries
+        if 'werkzeug.request.session' not in request.environ:
+            request.environ['werkzeug.request.session'] = {}
+        request.environ['werkzeug.request.session'][session_key] = response
+        
+        return response
+
     except Exception as e:
         logging.error(f"Error fetching payments: {e}")
         return jsonify({"error": f"Failed to fetch payments: {str(e)}"}), 500
 
-@app.route("/patients/<int:patient_id>/payments", methods=["GET"])
+# New dedicated endpoint for payment list view
+@app.route("/payments/list", methods=["GET"])
 @jwt_required()
-def get_patient_payments(patient_id):
+@limiter.limit("300/minute")
+def get_payments_list():
     try:
-        payments = Payment.query.filter_by(patient_id=patient_id).all()
-        return jsonify([payment.to_dict() for payment in payments]), 200
-    except Exception as e:
-        logging.error(f"Error fetching patient payments: {e}")
-        return jsonify({"error": f"Failed to fetch patient payments: {str(e)}"}), 500
+        user_id = int(get_jwt_identity())
+        user = db.session.get(User, user_id)
+        
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+            
+        # Get include_subscriptions parameter
+        include_subscriptions = request.args.get('include_subscriptions', 'true').lower() == 'true'
+        
+        # Optimized query for list view (fewer joins, focus on display data)
+        query = Payment.query.filter(
+            db.or_(
+                Payment.user_id == user_id,
+                Payment.patient_id == user_id, 
+                Payment.provider_id == user_id,
+                Payment.patient_name == user.username,
+                Payment.provider_name == user.username
+            )
+        )
+                
+        # Filter by subscription status if requested
+        if not include_subscriptions:
+            query = query.filter_by(is_subscription_payment=False)
 
-@app.route("/providers/<int:provider_id>/payments", methods=["GET"])
-@jwt_required()
-def get_provider_payments(provider_id):
-    try:
-        payments = Payment.query.filter_by(provider_id=provider_id).all()
-        return jsonify([payment.to_dict() for payment in payments]), 200
+        # Order by date for list view
+        payments = query.order_by(Payment.payment_date.desc()).all()
+        
+        # Convert to list of dicts with additional user information
+        payment_list = []
+        for payment in payments:
+            payment_dict = payment.to_dict()
+            
+            # Add patient name if available but not already set
+            if payment.patient_id and not payment_dict.get('patient_name'):
+                patient = db.session.get(User, payment.patient_id)
+                if patient:
+                    payment_dict['patient_name'] = patient.username
+            
+            # Add provider name if available but not already set
+            if payment.provider_id and not payment_dict.get('provider_name'):
+                provider = db.session.get(User, payment.provider_id)
+                if provider:
+                    payment_dict['provider_name'] = provider.username
+                    
+            payment_list.append(payment_dict)
+            
+        return jsonify(payment_list)
+
     except Exception as e:
-        logging.error(f"Error fetching provider payments: {e}")
-        return jsonify({"error": f"Failed to fetch provider payments: {str(e)}"}), 500
+        logging.error(f"Error fetching payment list: {e}")
+        return jsonify({"error": f"Failed to fetch payment list: {str(e)}"}), 500
+
+# New dedicated endpoint for payment analytics
+@app.route("/payments/analytics", methods=["GET"])
+@jwt_required()
+@limiter.limit("120/minute")  # Less frequent analytics calls
+def get_payments_analytics():
+    try:
+        user_id = int(get_jwt_identity())
+        user = db.session.get(User, user_id)
+        
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+            
+        # Get include_subscriptions parameter
+        include_subscriptions = request.args.get('include_subscriptions', 'true').lower() == 'true'
+        
+        # Base query for payments
+        query = Payment.query.filter(
+            db.or_(
+                Payment.user_id == user_id,
+                Payment.patient_id == user_id, 
+                Payment.provider_id == user_id,
+                Payment.patient_name == user.username,
+                Payment.provider_name == user.username
+            )
+        )
+                
+        # Filter by subscription status if requested
+        if not include_subscriptions:
+            query = query.filter_by(is_subscription_payment=False)
+
+        payments = query.all()
+        
+        # Calculate analytics data
+        total_revenue = sum(payment.amount for payment in payments if payment.status == "completed")
+        avg_transaction = total_revenue / len(payments) if payments else 0
+        
+        # Payment method distribution
+        method_counts = {}
+        for payment in payments:
+            method = payment.payment_method
+            method_counts[method] = method_counts.get(method, 0) + 1
+            
+        payment_methods = [{"name": method, "count": count} for method, count in method_counts.items()]
+        
+        # Revenue by period (monthly and weekly)
+        monthly_revenue = {}
+        weekly_revenue = {}
+        
+        for payment in payments:
+            if payment.payment_date and payment.status == "completed":
+                # Monthly data
+                month_key = payment.payment_date.strftime("%Y-%m")
+                monthly_revenue[month_key] = monthly_revenue.get(month_key, 0) + payment.amount
+                
+                # Weekly data
+                week_of_month = (payment.payment_date.day - 1) // 7 + 1
+                week_key = f"Week {week_of_month}"
+                weekly_revenue[week_key] = weekly_revenue.get(week_key, 0) + payment.amount
+        
+        # Format for charts
+        monthly_data = [{"period": month, "revenue": amount} for month, amount in monthly_revenue.items()]
+        weekly_data = [{"period": week, "revenue": amount} for week, amount in weekly_revenue.items()]
+        
+        # Sort data by period
+        monthly_data.sort(key=lambda x: x["period"])
+        weekly_data.sort(key=lambda x: int(x["period"].split(" ")[1]))
+        
+        return jsonify({
+            "analytics": {
+                "total_revenue": total_revenue,
+                "avg_transaction_value": avg_transaction,
+                "payment_method_distribution": payment_methods,
+                "monthly_revenue": monthly_data,
+                "weekly_revenue": weekly_data,
+                "total_transactions": len(payments)
+            },
+            "has_payments": len(payments) > 0
+        })
+
+    except Exception as e:
+        logging.error(f"Error fetching payment analytics: {e}")
+        return jsonify({"error": f"Failed to fetch payment analytics: {str(e)}"}), 500
 
 # Initialize and start MQTT client when Flask app starts
 def start_mqtt():
