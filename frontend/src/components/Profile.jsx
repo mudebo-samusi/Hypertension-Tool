@@ -1,44 +1,42 @@
 import React, { useState, useEffect } from 'react';
-import api from '../services/api'; // Import the API service
+import api from '../services/api';
 
 const Profile = () => {
   const [profileData, setProfileData] = useState({
     name: '',
     email: '',
     role: '',
-    profileImage: '' // Add field to store the current profile image URL
-    // Initialize with only the fields that backend provides
+    profileImage: '',
+    // Additional fields will be added dynamically based on role
   });
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
-  const [imageFile, setImageFile] = useState(null); // New state for the file
-  const [imagePreview, setImagePreview] = useState(null); // New state for image preview
+  const [error, setError] = useState('');
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
 
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        // Use the API service instead of direct axios call
         const data = await api.getProfile();
         setProfileData(data);
+        
         // Set initial image preview if profileImage exists
         if (data.profileImage) {
-          // Assuming profileImage is a URL accessible by the browser
-          // If it's just a filename, you might need to construct the full URL
-          setImagePreview(data.profileImage); 
+          // Check if the URL is relative or absolute
+          const imageUrl = data.profileImage.startsWith('http') 
+            ? data.profileImage 
+            : `${api.defaults.baseURL}${data.profileImage}`;
+          setImagePreview(imageUrl);
         }
       } catch (error) {
         console.error('Error fetching profile:', error);
-        
-        // Add more user feedback about the error
-        setMessage(error.response?.data?.error || 
-                  'Failed to load profile. Please try logging in again.');
+        setError(error.response?.data?.error || 
+                'Failed to load profile. Please try logging in again.');
                 
-        // If there's an authentication issue, redirect to login
+        // Handle authentication issues
         if (error.response?.status === 401 || error.response?.status === 422) {
-          // Wait briefly to show the error message before redirecting
-          setTimeout(() => {
-            window.location.href = '/login?expired=true';
-          }, 1500);
+          setTimeout(() => window.location.href = '/login?expired=true', 1500);
         }
       } finally {
         setLoading(false);
@@ -48,25 +46,21 @@ const Profile = () => {
     fetchProfile();
   }, []);
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setProfileData({
-      ...profileData,
-      [name]: value
-    });
-  };
-
   // New function to handle image file selection
   const handleImageChange = (e) => {
     const file = e.target.files[0];
     if (file) {
+      // Validate file size (2MB max)
+      if (file.size > 2 * 1024 * 1024) {
+        setError('Image size exceeds 2MB limit');
+        return;
+      }
+      
       setImageFile(file);
       
-      // Create a preview URL for the selected image
+      // Create preview
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result);
-      };
+      reader.onloadend = () => setImagePreview(reader.result);
       reader.readAsDataURL(file);
     }
   };
@@ -74,36 +68,70 @@ const Profile = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setMessage('');
+    setError('');
+    
+    if (!imageFile) {
+      setError('Please select an image to upload');
+      return;
+    }
     
     try {
-      // Create a FormData object to handle file upload along with other data
+      // Create FormData for image upload
       const formData = new FormData();
+      formData.append('profileImage', imageFile);
       
-      // Append text data
-      formData.append('name', profileData.name);
-      formData.append('email', profileData.email);
-      // Role is read-only, typically not sent for update unless needed by backend
-      // formData.append('role', profileData.role); 
+      const response = await api.updateProfile(formData);
       
-      // Append the image file if a new one was selected
-      if (imageFile) {
-        formData.append('profileImage', imageFile);
+      setMessage('Profile picture updated successfully!');
+      
+      // Update profile image in state if response contains new URL
+      if (response.profileImage) {
+        setProfileData(prev => ({...prev, profileImage: response.profileImage}));
+        
+        // Update preview with full URL
+        const imageUrl = response.profileImage.startsWith('http') 
+          ? response.profileImage 
+          : `${api.defaults.baseURL}${response.profileImage}`;
+        setImagePreview(imageUrl);
       }
       
-      // Use a potentially new API service method designed for FormData/multipart uploads
-      // If your existing updateProfile handles FormData, you can use it.
-      // Otherwise, create a new one like updateProfileWithImage.
-      await api.updateProfile(formData); // Or api.updateProfileWithImage(formData)
-      
-      setMessage('Profile updated successfully!');
-      // Optionally, refetch profile data to get the updated image URL if backend returns it
-      // const updatedData = await api.getProfile();
-      // setProfileData(updatedData);
-      // if (updatedData.profileImage) setImagePreview(updatedData.profileImage);
+      // Clear the file input
+      setImageFile(null);
+      document.getElementById('profileImageInput').value = '';
+    } catch (err) {
+      console.error('Error updating profile:', err);
+      setError(err.response?.data?.error || 'Failed to update profile picture. Please try again.');
+    }
+  };
 
-    } catch (error) {
-      console.error('Error updating profile:', error);
-      setMessage('Failed to update profile. Please try again.');
+  // Function to render role-specific information
+  const renderRoleSpecificInfo = () => {
+    // Using memo pattern for performance with complex UIs
+    switch(profileData.role) {
+      case 'doctor':
+        return (
+          <div className="bg-blue-50 p-4 rounded-md mb-6">
+            <h3 className="text-lg font-medium text-blue-800 mb-2">Doctor Information</h3>
+            <p><strong>Specialty:</strong> {profileData.doctorType || 'Not specified'}</p>
+          </div>
+        );
+      case 'organization':
+        return (
+          <div className="bg-purple-50 p-4 rounded-md mb-6">
+            <h3 className="text-lg font-medium text-purple-800 mb-2">Organization Information</h3>
+            <p><strong>Type:</strong> {profileData.organizationType || 'Not specified'}</p>
+            <p><strong>Hospital/Clinic:</strong> {profileData.hospitalName || 'Not specified'}</p>
+          </div>
+        );
+      case 'patient':
+        return (
+          <div className="bg-green-50 p-4 rounded-md mb-6">
+            <h3 className="text-lg font-medium text-green-800 mb-2">Patient Information</h3>
+            {profileData.caretakerId && <p><strong>Care Taker Assigned:</strong> Yes</p>}
+          </div>
+        );
+      default:
+        return null;
     }
   };
 
@@ -117,16 +145,24 @@ const Profile = () => {
     <div className="w-full max-w-4xl mx-auto p-4 sm:p-6 md:p-8">
       <h2 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-6">Your Profile</h2>
       
+      {error && (
+        <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-md">
+          {error}
+        </div>
+      )}
+      
       {message && (
         <div className="mb-4 p-3 bg-green-100 text-green-700 rounded-md">
           {message}
         </div>
       )}
       
+      {/* Role-specific information */}
+      {renderRoleSpecificInfo()}
+      
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Profile Image Section */}
         <div className="flex flex-col items-center mb-6 space-y-4">
-          {/* Image Preview */}
           <div>
             {imagePreview ? (
               <img 
@@ -141,7 +177,6 @@ const Profile = () => {
             )}
           </div>
           
-          {/* Image Upload Input */}
           <div>
             <label htmlFor="profileImageInput" className="cursor-pointer px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
               Change Picture
@@ -150,16 +185,16 @@ const Profile = () => {
               type="file"
               id="profileImageInput"
               name="profileImage"
-              accept="image/png, image/jpeg, image/jpg" // Specify acceptable image types
+              accept="image/png, image/jpeg, image/jpg, image/gif"
               onChange={handleImageChange}
-              className="sr-only" // Hide the default file input visually
+              className="sr-only"
             />
-            <p className="mt-2 text-xs text-gray-500">PNG, JPG up to 2MB</p> 
+            <p className="mt-2 text-xs text-gray-500">PNG, JPG, GIF up to 2MB</p> 
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Name field */}
+          {/* All fields are now read-only */}
           <div>
             <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
               Username
@@ -169,13 +204,11 @@ const Profile = () => {
               id="name"
               name="name"
               value={profileData.name || ''}
-              onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              required
+              readOnly
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-50"
             />
           </div>
           
-          {/* Email field */}
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
               Email
@@ -185,13 +218,11 @@ const Profile = () => {
               id="email"
               name="email"
               value={profileData.email || ''}
-              onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              required
+              readOnly
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-50"
             />
           </div>
           
-          {/* Role field */}
           <div>
             <label htmlFor="role" className="block text-sm font-medium text-gray-700 mb-1">
               Role
@@ -204,16 +235,16 @@ const Profile = () => {
               readOnly
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-50"
             />
-            <p className="mt-1 text-xs text-gray-500">Role cannot be changed</p>
           </div>
         </div>
         
-        <div className="flex justify-end pt-4"> {/* Added padding top */}
+        <div className="flex justify-end pt-4">
           <button 
             type="submit"
             className="px-6 py-2 bg-blue-600 text-white rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors w-full sm:w-auto"
+            disabled={!imageFile}
           >
-            Save Profile
+            Update Profile Picture
           </button>
         </div>
       </form>
