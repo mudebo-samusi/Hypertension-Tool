@@ -1,5 +1,6 @@
 
 import React from 'react';
+import PropTypes from 'prop-types';
 
 const LikeButton = ({ liked, count, onToggle }) => {
   return (
@@ -19,6 +20,11 @@ const LikeButton = ({ liked, count, onToggle }) => {
       <span>{count}</span>
     </button>
   );
+};
+LikeButton.propTypes = {
+  liked: PropTypes.bool.isRequired,
+  count: PropTypes.number.isRequired,
+  onToggle: PropTypes.func.isRequired,
 };
 
 export default LikeButton;
