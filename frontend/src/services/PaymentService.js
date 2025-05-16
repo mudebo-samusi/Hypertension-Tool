@@ -183,70 +183,137 @@ export class PaymentService {
   
   // Method to apply currency conversion to payment data
   async applyCurrencyConversion(paymentData) {
-      // If no currency service or payment is already in USD, return unchanged
-      if (!this.currencyService || paymentData.currency === 'USD' || !paymentData.currency) {
-          return paymentData;
-      }
+    // If no currency service or payment is already in USD, return unchanged
+    if (!this.currencyService || paymentData.currency === 'USD' || !paymentData.currency) {
+      return paymentData;
+    }
 
-      // Clone the payment data to avoid modifying the original
-      const convertedData = { ...paymentData };
+    // Clone the payment data to avoid modifying the original
+    const convertedData = { ...paymentData };
+    
+    try {
+      // Check if exchange rates need to be refreshed
+      if (this.currencyService.needsRefresh()) {
+        await this.currencyService.updateExchangeRates();
+      }
       
-      try {
-          // Get the original amount in USD if payment is in another currency
-          if (paymentData.originalAmount && paymentData.originalCurrency === 'USD') {
-              // We already have the original USD amount stored
-              convertedData.usdAmount = paymentData.originalAmount;
-          } else if (paymentData.currency !== 'USD') {
-              // Convert the current amount to USD for record-keeping
-              convertedData.usdAmount = this.currencyService.convertToUSD(
-                  parseFloat(paymentData.amount), 
-                  paymentData.currency
-              );
-          } else {
-              // It's already in USD
-              convertedData.usdAmount = parseFloat(paymentData.amount);
-          }
-
-          // Store original values before conversion
-          if (!paymentData.originalAmount) {
-              convertedData.originalAmount = parseFloat(paymentData.amount);
-              convertedData.originalCurrency = paymentData.currency || 'USD';
-          }
-
-          // Convert the amount from USD to target currency if needed
-          if (paymentData.currency !== 'USD' && paymentData.usdAmount) {
-              // We're converting from stored USD amount to target currency
-              convertedData.amount = this.currencyService.convertFromUSD(
-                  paymentData.usdAmount,
-                  paymentData.currency
-              );
-          } else if (paymentData.currency !== 'USD') {
-              // Set the converted amount
-              convertedData.amount = this.currencyService.convertFromUSD(
-                  convertedData.usdAmount,
-                  paymentData.currency
-              );
-          }
-
-          // Format the exchange rate information for receipt
-          if (paymentData.currency !== 'USD') {
-              const rate = this.currencyService.getExchangeRate(paymentData.currency);
-              convertedData.exchangeRateInfo = {
-                  fromCurrency: 'USD',
-                  toCurrency: paymentData.currency,
-                  rate: rate,
-                  convertedAt: new Date().toISOString()
-              };
-          }
-
-          return convertedData;
-      } catch (error) {
-          console.error('Currency conversion error:', error);
-          // If conversion fails, return original data
-          return paymentData;
+      // Get the original amount in USD if payment is in another currency
+      if (paymentData.originalAmount && paymentData.originalCurrency === 'USD') {
+        // We already have the original USD amount stored
+        convertedData.usdAmount = paymentData.originalAmount;
+      } else if (paymentData.currency !== 'USD') {
+        // Convert the current amount to USD for record-keeping
+        try {
+          convertedData.usdAmount = this.currencyService.convertToUSD(
+            parseFloat(paymentData.amount), 
+            paymentData.currency
+          );
+        } catch (error) {
+          console.error('Error converting to USD:', error);
+          // If conversion fails, estimate the USD amount from hardcoded rates
+          convertedData.usdAmount = parseFloat(paymentData.amount) / 
+            this.currencyService.getExchangeRate(paymentData.currency);
+        }
+      } else {
+        // It's already in USD
+        convertedData.usdAmount = parseFloat(paymentData.amount);
       }
+
+      // Store original values before conversion
+      if (!paymentData.originalAmount) {
+        convertedData.originalAmount = parseFloat(paymentData.amount);
+        convertedData.originalCurrency = paymentData.currency || 'USD';
+      }
+
+      // Convert the amount from USD to target currency if needed
+      if (paymentData.currency !== 'USD' && paymentData.usdAmount) {
+        // We're converting from stored USD amount to target currency
+        convertedData.amount = this.currencyService.convertFromUSD(
+          paymentData.usdAmount,
+          paymentData.currency
+        );
+      } else if (paymentData.currency !== 'USD') {
+        // Set the converted amount
+        convertedData.amount = this.currencyService.convertFromUSD(
+          convertedData.usdAmount,
+          paymentData.currency
+        );
+      }
+
+      // Format the exchange rate information for receipt
+      if (paymentData.currency !== 'USD') {
+        const rate = this.currencyService.getExchangeRate(paymentData.currency);
+        convertedData.exchangeRateInfo = {
+          fromCurrency: 'USD',
+          toCurrency: paymentData.currency,
+          rate: rate,
+          convertedAt: new Date().toISOString(),
+          rateSource: 'ExchangeRate-API',
+          lastUpdated: this.currencyService.getLastUpdated()?.toISOString()
+        };
+      }
+
+      return convertedData;
+    } catch (error) {
+      console.error('Currency conversion error:', error);
+      // If conversion fails, return original data
+      return paymentData;
+    }
   }
   
+  // Convert an amount between two currencies
+  async convertBetweenCurrencies(amount, fromCurrency, toCurrency) {
+    try {
+      if (!this.currencyService) {
+        throw new Error('Currency service not available');
+      }
+      
+      // Refresh rates if needed
+      if (this.currencyService.needsRefresh()) {
+        await this.currencyService.updateExchangeRates();
+      }
+      
+      // If currencies are the same, no conversion needed
+      if (fromCurrency === toCurrency) {
+        return amount;
+      }
+      
+      // Convert to USD first (if not already)
+      let amountInUSD;
+      if (fromCurrency === 'USD') {
+        amountInUSD = amount;
+      } else {
+        amountInUSD = this.currencyService.convertToUSD(amount, fromCurrency);
+      }
+      
+      // Then convert from USD to target currency (if not USD)
+      if (toCurrency === 'USD') {
+        return amountInUSD;
+      } else {
+        return this.currencyService.convertFromUSD(amountInUSD, toCurrency);
+      }
+    } catch (error) {
+      console.error('Currency conversion error:', error);
+      throw error;
+    }
+  }
+  
+  // Get all supported currencies
+  getSupportedCurrencies() {
+    if (!this.currencyService) {
+      return [];
+    }
+    return this.currencyService.getSupportedCurrencies();
+  }
+  
+  // Format amount with currency symbol
+  formatAmountWithCurrency(amount, currencyCode) {
+    if (!this.currencyService) {
+      return `${amount} ${currencyCode}`;
+    }
+    return this.currencyService.formatAmountWithCurrency(amount, currencyCode);
+  }
+
   // Add a more robust version of the createPayment method with fallback handling
   async createPayment(paymentData) {
       try {
@@ -257,14 +324,16 @@ export class PaymentService {
           
           // Convert camelCase to snake_case for backend compatibility
           const formattedPaymentData = {
+              ...paymentData,
+              payment_method: paymentData.paymentMethod,
               amount: parseFloat(convertedPaymentData.amount),
               currency: convertedPaymentData.currency || 'USD',
-              payment_method: convertedPaymentData.paymentMethod,
               patient_id: convertedPaymentData.patientId,
               provider_id: convertedPaymentData.providerId,
               // Include payment method specific details
               payment_details: this.formatPaymentDetails(convertedPaymentData)
           };
+          delete formattedPaymentData.paymentMethod;
           
           // Add exchange rate information if a conversion was performed
           if (convertedPaymentData.exchangeRateInfo) {
@@ -375,5 +444,90 @@ export class PaymentService {
           console.error('Error fetching provider non-subscription payments:', error);
           throw error;
       }
+  }
+
+  // Method to create payment with user information from current session
+  async createPaymentWithUserInfo(paymentData, currentUser) {
+    try {
+      // Enrich the payment data with user information
+      const enrichedPaymentData = {
+        ...paymentData,
+        patientId: currentUser.id || '',
+        patientName: currentUser.username || '',
+        userId: currentUser.id,  // Add this for backend filtering
+        // Generate a client-side ID if not provided
+        id: paymentData.id || `pay_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+      };
+      
+      this.validatePaymentData(enrichedPaymentData);
+      
+      // Apply currency conversion if needed
+      const convertedPaymentData = await this.applyCurrencyConversion(enrichedPaymentData);
+      
+      // Format for backend
+      const backendPaymentData = {
+        amount: parseFloat(convertedPaymentData.amount),
+        currency: convertedPaymentData.currency || 'USD',
+        payment_method: convertedPaymentData.paymentMethod,
+        patient_id: convertedPaymentData.patientId,
+        provider_id: convertedPaymentData.providerId,
+        patient_name: convertedPaymentData.patientName,
+        provider_name: convertedPaymentData.providerName,
+        payment_details: this.formatPaymentDetails(convertedPaymentData),
+        // Include client ID for tracking
+        client_id: enrichedPaymentData.id
+      };
+      
+      // Add subscription flag if this is a subscription payment
+      if (convertedPaymentData.isSubscription) {
+        backendPaymentData.is_subscription_payment = true;
+        
+        // If this is a subscription payment, use the subscription API
+        if (convertedPaymentData.subscriptionDetails) {
+          return await this.processSubscriptionPayment({
+            ...convertedPaymentData,
+            client_id: enrichedPaymentData.id
+          });
+        }
+      }
+      
+      // Add exchange rate information if available
+      if (convertedPaymentData.exchangeRateInfo) {
+        backendPaymentData.exchange_rate_info = convertedPaymentData.exchangeRateInfo;
+      }
+      
+      // Add USD equivalent for accounting
+      if (convertedPaymentData.usdAmount) {
+        backendPaymentData.usd_equivalent = convertedPaymentData.usdAmount;
+      }
+      
+      const response = await this.apiClient.createPayment(backendPaymentData);
+      return response;
+    } catch (error) {
+      console.error('Payment creation error:', error);
+      throw error;
+    }
+  }
+  
+  // Method to fetch payments for current user only
+  async getUserPayments() {
+    try {
+      const response = await this.apiClient.getUserPayments();
+      return Array.isArray(response) ? response : [];
+    } catch (error) {
+      console.error('Error fetching user payments:', error);
+      throw error;
+    }
+  }
+  
+  // Method to fetch non-subscription payments for current user only
+  async getUserNonSubscriptionPayments() {
+    try {
+      const payments = await this.getUserPayments();
+      return payments.filter(payment => !payment.is_subscription_payment);
+    } catch (error) {
+      console.error('Error fetching user non-subscription payments:', error);
+      throw error;
+    }
   }
 }
