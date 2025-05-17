@@ -3,6 +3,7 @@ import { createContext, useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
+import { initializeSocket, disconnect } from '../services/socket';
 
 const AuthContext = createContext(null);
 
@@ -20,8 +21,14 @@ export const AuthProvider = ({ children }) => {
     const token = localStorage.getItem('access_token');
     if (token) {
       api.setAuthToken(token);
+      
+      // Initialize socket connection when user is authenticated
+      initializeSocket();
     } else {
       api.clearAuthToken();
+      
+      // Disconnect socket when token is cleared
+      disconnect();
     }
   }, [user]);
 
@@ -49,6 +56,9 @@ export const AuthProvider = ({ children }) => {
       if (response.access_token) {
         localStorage.setItem('access_token', response.access_token);
         api.setAuthToken(response.access_token); // Update API token immediately
+        
+        // Initialize socket connection with new token
+        initializeSocket();
       }
       
       navigate('/'); // Redirect to home page after login
@@ -63,6 +73,9 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = () => {
+    // Disconnect socket before clearing auth data
+    disconnect();
+    
     setUser(null);
     localStorage.removeItem('access_token');
     localStorage.removeItem('user');
