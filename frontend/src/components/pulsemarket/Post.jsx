@@ -6,8 +6,11 @@ import { formatDistanceToNow } from 'date-fns';
 import api from '../../services/api';
 
 const Post = ({ post, onLikeToggle, onCommentCountChange }) => {
+  // Always initialize from backend value
   const [showComments, setShowComments] = useState(false);
   const [commentCount, setCommentCount] = useState(post.comments);
+  const [likeCount, setLikeCount] = useState(post.likes);
+  const [userLiked, setUserLiked] = useState(post.userLiked);
   
   // Get proper avatar URL with fallback
   const avatarUrl = post.author.avatar && post.author.avatar.trim() !== '' 
@@ -20,6 +23,20 @@ const Post = ({ post, onLikeToggle, onCommentCountChange }) => {
     // Propagate to parent if needed
     if (onCommentCountChange) {
       onCommentCountChange(post.id, newCount);
+    }
+  };
+
+  // Update like count and liked status after toggle
+  const handleLike = async () => {
+    try {
+      const response = await onLikeToggle(post.id, 'post');
+      if (response && typeof response.count === 'number') {
+        setLikeCount(response.count);
+        setUserLiked(response.liked);
+      }
+    } catch (e) {
+      console.error("Error toggling like:", e);
+      // Don't update state on error - keep previous state
     }
   };
   
@@ -42,9 +59,9 @@ const Post = ({ post, onLikeToggle, onCommentCountChange }) => {
           
           <div className="flex items-center space-x-4 text-gray-500 pt-2 border-t border-gray-100">
             <LikeButton 
-              liked={post.userLiked} 
-              count={post.likes} 
-              onToggle={() => onLikeToggle(post.id)}  // Ensure we're passing the post.id to the handler
+              liked={userLiked} 
+              count={likeCount} 
+              onToggle={handleLike}
             />
             
             <button 
