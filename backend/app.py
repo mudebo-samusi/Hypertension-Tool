@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, render_template_string, session
 from flask_cors import CORS
 import datetime
 from flask_bcrypt import Bcrypt
@@ -16,7 +16,7 @@ import secrets
 import os
 import threading
 import json
-from flask_socketio import SocketIO
+from flask_socketio import SocketIO, Namespace
 # Import the MQTT client module
 import mqtt_client
 import uuid  # Add import for UUID
@@ -47,6 +47,7 @@ from routes.chat import chat_bp, register_socketio_handlers
 # Initialize Flask app
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(16)
+app.config["SECRET_KEY"] = app.secret_key  # <-- Ensure SECRET_KEY is set
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///hypertension.db"
 app.config["JWT_SECRET_KEY"] = "4e8b352387ca940a69deafb95a8b62661366473606e4ae6e67ac5f4bde944b99"
 app.config["MAIL_SERVER"] = "smtp.gmail.com"
@@ -56,8 +57,45 @@ app.config["MAIL_USERNAME"] = "your-email@gmail.com"
 app.config["MAIL_PASSWORD"] = "your-email-password"
 app.config["MAIL_DEFAULT_SENDER"] = "your-email@gmail.com"
 
-# Update SocketIO to allow CORS properly
-socketio = SocketIO(app, cors_allowed_origins=["http://localhost:5173", "http://192.168.171.235:5173"], async_mode='threading', manage_session=True)
+# Update SocketIO to allow CORS properly and set up namespaces
+socketio = SocketIO(app, 
+                   cors_allowed_origins=["http://localhost:5173", "http://192.168.171.235:5173"], 
+                   async_mode='threading', 
+                   manage_session=True,
+                   logger=True, 
+                   engineio_logger=True)
+
+# Create namespaces for different services
+class MonitorNamespace(Namespace):
+    def on_connect(self):
+        # Get token from query parameter or headers
+        token = None
+        if request.args and 'token' in request.args:
+            token = request.args.get('token')
+        elif request.headers.get('Authorization'):
+            auth_header = request.headers.get('Authorization')
+            if auth_header.startswith('Bearer '):
+                token = auth_header.split(' ')[1]
+                
+        if not token:
+            logging.warning(f"Socket connection attempt without token")
+            return False
+        
+        try:
+            # Use proper Flask-JWT-Extended methods
+            from flask_jwt_extended import decode_token
+            
+            # Verify token
+            decoded = decode_token(token)
+            session['user_id'] = decoded['sub']
+            logging.info(f"BP Monitor client connected: {request.sid}")
+            return True
+        except Exception as e:
+            logging.error(f"Invalid token: {str(e)}")
+            return False
+
+monitor_namespace = MonitorNamespace('/monitor')
+socketio.on_namespace(monitor_namespace)
 
 # Improve CORS configuration
 CORS(app, 
@@ -96,8 +134,7 @@ app.register_blueprint(comments_bp)
 app.register_blueprint(likes_bp)
 app.register_blueprint(profile_bp)
 app.register_blueprint(chat_bp)
-register_socketio_handlers(socketio)
-
+register_socketio_handlers(socketio, '/chat')  # Add namespace parameter here
 
 # Add JWT error handler
 @jwt.invalid_token_loader
@@ -126,6 +163,28 @@ def handle_options_request():
         response.headers['Access-Control-Allow-Credentials'] = 'true'
         return response, 200
 
+# Add a health check endpoint for CORS and connectivity testing
+@app.route("/health", methods=["GET"])
+def health_check():
+    return jsonify({"status": "Thanks for checking my health status, ok"}), 200
+
+# Ensure CORS headers are set for all responses, including errors
+@app.after_request
+def add_cors_headers(response):
+    origin = request.headers.get('Origin')
+    allowed_origins = [
+        "http://localhost:5173",
+        "http://192.168.171.235:5173"
+    ]
+    if origin in allowed_origins:
+        response.headers['Access-Control-Allow-Origin'] = origin
+    else:
+        response.headers['Access-Control-Allow-Origin'] = allowed_origins[0]
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+    response.headers['Access-Control-Allow-Credentials'] = 'true'
+    return response
+
 # Handler for health data received from MQTT
 def handle_mqtt_health_data(data):
     try:
@@ -141,8 +200,8 @@ def handle_mqtt_health_data(data):
             logging.error("Missing required BP data fields")
             return
             
-        # Send to frontend via Socket.IO
-        socketio.emit('new_bp_reading', {
+        # Send to frontend via Socket.IO using monitor namespace
+        monitor_namespace.emit('new_bp_reading', {
             'systolic': systolic, 
             'diastolic': diastolic, 
             'heart_rate': heart_rate
@@ -165,8 +224,8 @@ def handle_mqtt_health_data(data):
             prediction_result = process_bp_prediction(systolic, diastolic, heart_rate)
             logging.info(f"Generated prediction result: {prediction_result}")
             
-            # Send prediction results to frontend via Socket.IO
-            socketio.emit('prediction_result', prediction_result)
+            # Send prediction results to frontend via Socket.IO using monitor namespace
+            monitor_namespace.emit('prediction_result', prediction_result)
             logging.info("Prediction result sent to frontend via Socket.IO")
             
             # Send prediction results to MQTT notification topic
@@ -327,63 +386,69 @@ def load_user(user_id):
 # Register endpoint
 @app.route('/register', methods=['POST'])
 def register():
-    data = request.get_json()
-    username = data.get('username')
-    email = data.get('email')
-    password = data.get('password')
-    role = data.get('role')
-    additional_info = data.get('additionalInfo', {})
+    try:
+        data = request.get_json()
+        username = data.get('username')
+        email = data.get('email')
+        password = data.get('password')
+        role = data.get('role')
+        additional_info = data.get('additionalInfo', {})
 
-    # Basic validation
-    if not username or not email or not password or not role:
-        return jsonify(success=False, message="Missing required fields"), 400
+        # Basic validation
+        if not username or not email or not password or not role:
+            return jsonify(success=False, message="Missing required fields"), 400
 
-    # Check if user/email already exists
-    if User.query.filter_by(username=username).first():
-        return jsonify(success=False, message="Username already exists"), 400
-    if User.query.filter_by(email=email).first():
-        return jsonify(success=False, message="Email already exists"), 400
+        # Check if user/email already exists
+        if User.query.filter_by(username=username).first():
+            return jsonify(success=False, message="Username already exists"), 400
+        if User.query.filter_by(email=email).first():
+            return jsonify(success=False, message="Email already exists"), 400
 
-    # Create user with basic fields
-    hashed_password = generate_password_hash(password)
-    user = User(
-        username=username,
-        email=email,
-        password=hashed_password,
-        role=role
-    )
-    
-    # Add role-specific data to user object
-    if role == "Care Taker":
-        if not additional_info.get('patientId'):
-            return jsonify(success=False, message="Patient ID required for Care Taker"), 400
-        user.patient_id = additional_info.get('patientId')
+        # Create user with basic fields
+        hashed_password = generate_password_hash(password)
+        user = User(
+            username=username,
+            email=email,
+            password=hashed_password,
+            role=role
+        )
+        
+        # Add role-specific data to user object
+        if role == "Care Taker":
+            if not additional_info.get('patientId'):
+                return jsonify(success=False, message="Patient ID required for Care Taker"), 400
+            user.patient_id = additional_info.get('patientId')
 
-    if role == "Doctor":
-        if not additional_info.get('type'):
-            return jsonify(success=False, message="Doctor type required"), 400
-        user.doctor_type = additional_info.get('type')
-        if additional_info.get('type') == "Organizational" and not additional_info.get('hospitalName'):
-            return jsonify(success=False, message="Hospital/Clinic Name required for Organizational Doctor"), 400
-        user.hospital_name = additional_info.get('hospitalName')
+        if role == "Doctor":
+            if not additional_info.get('type'):
+                return jsonify(success=False, message="Doctor type required"), 400
+            user.doctor_type = additional_info.get('type')
+            if additional_info.get('type') == "Organizational" and not additional_info.get('hospitalName'):
+                return jsonify(success=False, message="Hospital/Clinic Name required for Organizational Doctor"), 400
+            user.hospital_name = additional_info.get('hospitalName')
 
-    if role == "Patient":
-        if not additional_info.get('caretakerId'):
-            return jsonify(success=False, message="Caretaker ID required for Patient"), 400
-        user.caretaker_id = additional_info.get('caretakerId')
+        if role == "Patient":
+            if not additional_info.get('caretakerId'):
+                return jsonify(success=False, message="Caretaker ID required for Patient"), 400
+            user.caretaker_id = additional_info.get('caretakerId')
 
-    if role == "Organization":
-        if not additional_info.get('organizationType'):
-            return jsonify(success=False, message="Organization Type required"), 400
-        user.organization_type = additional_info.get('organizationType')
+        if role == "Organization":
+            if not additional_info.get('organizationType'):
+                return jsonify(success=False, message="Organization Type required"), 400
+            user.organization_type = additional_info.get('organizationType')
 
-    db.session.add(user)
-    db.session.commit()
+        db.session.add(user)
+        db.session.commit()
 
-    # Generate a temporary token valid for 1 hour
-    temp_token = create_access_token(identity=str(user.id), expires_delta=datetime.timedelta(hours=1))
+        # Generate a temporary token valid for 1 hour
+        temp_token = create_access_token(identity=str(user.id), expires_delta=datetime.timedelta(hours=1))
 
-    return jsonify(success=True, message="Registration successful", temp_token=temp_token), 201
+        return jsonify(success=True, message="Registration successful", temp_token=temp_token), 201
+    except Exception as e:
+        import traceback
+        logging.error(f"Registration error: {e}\n{traceback.format_exc()}")
+        db.session.rollback()
+        return jsonify(success=False, message=f"Registration failed: {str(e)}"), 500
 
 # Configure Flask-Login
 login_manager.login_view = "login"
