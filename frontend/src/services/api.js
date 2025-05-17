@@ -4,19 +4,8 @@ import axios from 'axios';
 const potentialBaseURLs = [
     'http://localhost:5000',
     'http://127.0.0.1:5000',
-    'http://localhost:8000',  // Common alternative port
-    'https://api.hypertension-tool.example.com' // For production (replace with your actual domain)
+     // For production (replace with your actual domain)
 ];
-
-// Function to test URL connectivity
-const testConnection = async (url) => {
-    try {
-        await axios.get(`${url}/health`, { timeout: 3000 });
-        return true;
-    } catch (err) {
-        return false;
-    }
-};
 
 // Initialize with first URL, will be updated if needed
 const api = axios.create({
@@ -34,6 +23,20 @@ if (cachedToken === "null" || !cachedToken) cachedToken = null;
 // Track if we're currently finding a working URL
 let findingWorkingURL = false;
 let lastConnectionCheck = 0;
+
+// Function to test URL connectivity
+const testConnection = async (url) => {
+    try {
+        const response = await axios.get(`${url}/health`, { timeout: 3000 });
+        return response.status === 200;
+    } catch (err) {
+        if (err.response && err.response.status === 404) {
+            console.warn(`Health check endpoint not found at ${url}/health. Assuming server is reachable.`);
+            return true;
+        }
+        return false;
+    }
+};
 
 // Function to find a working backend URL
 const findWorkingBackendURL = async () => {
@@ -838,6 +841,58 @@ api.setAuthToken = (token) => {
 api.clearAuthToken = () => {
     cachedToken = null;
     localStorage.removeItem('access_token');
+};
+
+// Add chat methods
+api.listChatRooms = async () => {
+    try {
+        const response = await api.get('/api/chat/rooms');
+        return response;
+    } catch (error) {
+        console.error('Error fetching chat rooms:', error);
+        throw error;
+    }
+};
+
+api.getChatMessages = async (roomId, options = {}) => {
+    try {
+        let url = `/api/chat/rooms/${roomId}/messages`;
+        
+        // Add query parameters for pagination/filtering
+        const queryParams = [];
+        if (options.before) queryParams.push(`before=${options.before}`);
+        if (options.limit) queryParams.push(`limit=${options.limit}`);
+        
+        if (queryParams.length > 0) {
+            url += `?${queryParams.join('&')}`;
+        }
+        
+        const response = await api.get(url);
+        
+        if (!Array.isArray(response)) {
+            console.error('Invalid response format from messages API (expected array):', response);
+            throw new Error("Invalid data format for messages."); 
+        }
+        
+        return response;
+    } catch (error) {
+        console.error(`Error in api.getChatMessages for room ${roomId}:`, error);
+        throw error; 
+    }
+};
+
+api.createChatRoom = async (name, userIds, isGroup) => {
+    try {
+        const response = await api.post('/api/chat/rooms', {
+            name,
+            user_ids: userIds,
+            is_group: isGroup
+        });
+        return response;
+    } catch (error) {
+        console.error('Error creating chat room:', error);
+        throw error;
+    }
 };
 
 // Export the enhanced API instance
