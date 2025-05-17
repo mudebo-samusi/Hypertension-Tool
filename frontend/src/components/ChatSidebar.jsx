@@ -14,89 +14,94 @@ import {
   Circle,
   X
 } from "lucide-react";
+import api from "../services/api";
 
-// Sample data for users and chats
-const SAMPLE_USERS = [
-  { id: 1, name: "Dr. Smith", avatar: "DS", status: "online", role: "Cardiologist", lastSeen: "Just now" },
-  { id: 2, name: "Dr. Johnson", avatar: "DJ", status: "online", role: "Neurologist", lastSeen: "2m ago" },
-  { id: 3, name: "Dr. Williams", avatar: "DW", status: "online", role: "Pediatrician", lastSeen: "5m ago" },
-  { id: 4, name: "Dr. Brown", avatar: "DB", status: "offline", role: "Dermatologist", lastSeen: "1h ago" },
-  { id: 5, name: "Dr. Davis", avatar: "DD", status: "offline", role: "Oncologist", lastSeen: "3h ago" },
-  { id: 6, name: "Dr. Miller", avatar: "DM", status: "offline", role: "Orthopedist", lastSeen: "5h ago" },
-  { id: 7, name: "Dr. Wilson", avatar: "DW", status: "offline", role: "Psychiatrist", lastSeen: "1d ago" },
-];
-
-const SAMPLE_CHATS = [
-  { 
-    id: 1, 
-    name: "Dr. Smith", 
-    avatar: "DS", 
-    lastMessage: "Patient John Doe needs review", 
-    timestamp: "10:30 AM", 
-    unread: 2,
-    status: "online" 
-  },
-  { 
-    id: 2, 
-    name: "Dr. Johnson", 
-    avatar: "DJ", 
-    lastMessage: "Lab results for patient #4523", 
-    timestamp: "9:45 AM", 
-    unread: 0,
-    status: "online" 
-  },
-  { 
-    id: 3, 
-    name: "Dr. Williams", 
-    avatar: "DW", 
-    lastMessage: "Can you cover my shift tomorrow?", 
-    timestamp: "Yesterday", 
-    unread: 0,
-    status: "online" 
-  },
-  { 
-    id: 4, 
-    name: "Dr. Brown", 
-    avatar: "DB", 
-    lastMessage: "New treatment protocol document", 
-    timestamp: "Yesterday", 
-    unread: 0,
-    status: "offline" 
-  },
-  { 
-    id: 5, 
-    name: "Dr. Davis", 
-    avatar: "DD", 
-    lastMessage: "Emergency meeting at 4pm", 
-    timestamp: "Monday", 
-    unread: 0,
-    status: "offline" 
-  },
-  { 
-    id: 6, 
-    name: "Nurse Team", 
-    avatar: "NT", 
-    lastMessage: "Schedule changes for next week", 
-    timestamp: "Sunday", 
-    unread: 0,
-    status: "offline" 
-  },
-  { 
-    id: 7, 
-    name: "Hospital Admin", 
-    avatar: "HA", 
-    lastMessage: "New guidelines for patient discharge", 
-    timestamp: "12/15/2024", 
-    unread: 0,
-    status: "offline" 
-  },
-];
-
-export default function ChatSidebar({ onChatSelect, selectedChatId, isMobile, onClose, onNewChat, onNewContact }) {
+export default function ChatSidebar({ onChatSelect, selectedChatId, isMobile, onClose, onNewChat, onNewContact, chatRooms = [] }) {
   const [activeTab, setActiveTab] = useState("chats");
   const [searchQuery, setSearchQuery] = useState("");
-  const [filteredChats, setFilteredChats] = useState(SAMPLE_CHATS);
-  const [filteredUsers, setFilteredUsers] = useState(SAMPLE_USERS);
+  const [localChatRooms, setLocalChatRooms] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [filteredChats, setFilteredChats] = useState([]);
+  const [filteredUsers, setFilteredUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // Fetch chat rooms and users
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        // Fetch chat rooms if not provided as prop
+        if (chatRooms.length === 0) {
+          const roomsData = await api.listChatRooms();
+          processRoomsData(roomsData);
+        } else {
+          processRoomsData(chatRooms);
+        }
+        
+        // Fetch users from the chat API endpoint
+        try {
+          const usersData = await api.get('/api/chat/users');
+          setUsers(usersData.map(user => ({
+            id: user.id,
+            name: user.name || user.username,
+            avatar: user.name ? user.name.substring(0, 2).toUpperCase() : 'U',
+            status: user.isOnline ? "online" : "offline",
+            role: user.role || "User",
+            lastSeen: user.lastSeen || "Unknown",
+            email: user.email
+          })));
+        } catch (error) {
+          console.error("Error fetching users:", error);
+          setError("Could not load users list");
+        }
+      } catch (error) {
+        console.error("Error fetching data:", error);
+        setError("Could not load chats");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  // Process incoming chat rooms data
+  const processRoomsData = (roomsData) => {
+    const processed = roomsData.map(room => ({
+      id: room.id,
+      name: room.name || `Chat ${room.id}`,
+      avatar: room.name ? room.name.substring(0, 2).toUpperCase() : 'CH',
+      lastMessage: room.lastMessage?.content || "No messages yet",
+      timestamp: room.lastMessage?.timestamp 
+        ? formatTimestamp(new Date(room.lastMessage.timestamp))
+        : "New",
+      unread: room.unreadCount || 0,
+      status: room.isActive ? "online" : "offline"
+    }));
+
+    // Sort by most recent message
+    const sortedRooms = [...processed].sort((a, b) => {
+      if (a.timestamp === "New") return 1;
+      if (b.timestamp === "New") return -1;
+      
+      // Try to parse the timestamp if not a Date object
+      const aDate = a.timestamp instanceof Date ? a.timestamp : new Date();
+      const bDate = b.timestamp instanceof Date ? b.timestamp : new Date();
+      
+      return bDate - aDate;
+    });
+    
+    setLocalChatRooms(sortedRooms);
+  };
+
+  // Update local chat rooms when the prop changes
+  useEffect(() => {
+    if (chatRooms && chatRooms.length > 0) {
+      processRoomsData(chatRooms);
+    }
+  }, [chatRooms]);
 
   // Filter chats and users based on search query
   useEffect(() => {
@@ -104,23 +109,61 @@ export default function ChatSidebar({ onChatSelect, selectedChatId, isMobile, on
       const query = searchQuery.toLowerCase();
       
       setFilteredChats(
-        SAMPLE_CHATS.filter(chat => 
+        localChatRooms.filter(chat => 
           chat.name.toLowerCase().includes(query) || 
           chat.lastMessage.toLowerCase().includes(query)
         )
       );
       
       setFilteredUsers(
-        SAMPLE_USERS.filter(user => 
+        users.filter(user => 
           user.name.toLowerCase().includes(query) || 
-          user.role.toLowerCase().includes(query)
+          (user.email && user.email.toLowerCase().includes(query)) ||
+          (user.role && user.role.toLowerCase().includes(query))
         )
       );
     } else {
-      setFilteredChats(SAMPLE_CHATS);
-      setFilteredUsers(SAMPLE_USERS);
+      setFilteredChats(localChatRooms);
+      setFilteredUsers(users);
     }
-  }, [searchQuery]);
+  }, [searchQuery, localChatRooms, users]);
+
+  // Helper function to format timestamps
+  const formatTimestamp = (date) => {
+    if (!date || isNaN(date.getTime())) return "Unknown";
+    
+    const now = new Date();
+    const diffInDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
+    
+    if (diffInDays === 0) {
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } else if (diffInDays === 1) {
+      return "Yesterday";
+    } else if (diffInDays < 7) {
+      return date.toLocaleDateString([], { weekday: 'long' });
+    } else {
+      return date.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: '2-digit' });
+    }
+  };
+
+  // Handle creating a new chat with a user from the users tab
+  const handleUserChatSelection = (user) => {
+    // Try to find an existing direct chat with this user
+    const existingChat = localChatRooms.find(chat => 
+      chat.name === user.name || 
+      chat.name === user.username
+    );
+    
+    if (existingChat) {
+      handleChatSelect(existingChat.id);
+    } else {
+      // Create a new chat with this user
+      onNewChat && onNewChat();
+      // Pre-select this user in the modal
+      // This would require modifying the UserSelectionModal component
+      // to accept a preselectedUser prop
+    }
+  };
 
   const handleChatSelect = (chatId) => {
     if (onChatSelect) {
@@ -132,7 +175,7 @@ export default function ChatSidebar({ onChatSelect, selectedChatId, isMobile, on
   };
 
   const getActiveUsers = () => {
-    return SAMPLE_USERS.filter(user => user.status === "online").length;
+    return users.filter(user => user.status === "online").length;
   };
 
   return (
@@ -210,106 +253,129 @@ export default function ChatSidebar({ onChatSelect, selectedChatId, isMobile, on
       
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        {activeTab === "chats" && (
-          <div className="divide-y divide-gray-200">
-            {filteredChats.length === 0 ? (
-              <div className="p-4 text-center text-gray-500">No chats found</div>
-            ) : (
-              filteredChats.map((chat) => (
-                <div
-                  key={chat.id}
-                  className={`p-3 flex items-center hover:bg-gray-50 cursor-pointer ${
-                    selectedChatId === chat.id ? "bg-violet-50" : ""
-                  }`}
-                  onClick={() => handleChatSelect(chat.id)}
-                >
-                  <div className="relative">
-                    <div className="h-12 w-12 rounded-full bg-violet-400 flex items-center justify-center mr-3">
-                      <span className="text-white font-medium">{chat.avatar}</span>
-                    </div>
-                    {chat.status === "online" && (
-                      <div className="absolute bottom-0 right-2 h-3 w-3 bg-green-500 rounded-full border-2 border-white"></div>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex justify-between items-center">
-                      <h3 className="font-medium text-gray-900 truncate">
-                        {chat.name}
-                      </h3>
-                      <span className="text-xs text-gray-500">
-                        {chat.timestamp}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center mt-1">
-                      <p className="text-sm text-gray-500 truncate">
-                        {chat.lastMessage}
-                      </p>
-                      {chat.unread > 0 && (
-                        <div className="bg-violet-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                          {chat.unread}
-                        </div>
-                      )}
-                      {chat.unread === 0 && (
-                        <CheckCheck size={16} className="text-gray-400" />
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
-        
-        {activeTab === "users" && (
-          <div className="divide-y divide-gray-200">
-            <div className="p-2 bg-gray-50 flex justify-between items-center">
-              <div className="flex items-center">
-                <Filter size={16} className="text-gray-500 mr-2" />
-                <span className="text-sm text-gray-600">Filter</span>
-              </div>
-              <div className="flex items-center">
-                <Circle size={8} className="text-green-500 mr-1" />
-                <span className="text-sm text-gray-600">Online: {getActiveUsers()}</span>
-              </div>
+        {loading ? (
+          <div className="p-4 text-center">
+            <div className="animate-pulse flex flex-col items-center">
+              <div className="h-4 bg-gray-200 rounded w-3/4 mb-4"></div>
+              <div className="h-10 bg-gray-200 rounded w-full mb-2"></div>
+              <div className="h-10 bg-gray-200 rounded w-full mb-2"></div>
+              <div className="h-10 bg-gray-200 rounded w-full mb-2"></div>
             </div>
-            
-            {filteredUsers.length === 0 ? (
-              <div className="p-4 text-center text-gray-500">No users found</div>
-            ) : (
-              filteredUsers.map((user) => (
-                <div
-                  key={user.id}
-                  className="p-3 flex items-center hover:bg-gray-50 cursor-pointer"
-                  onClick={() => {
-                    // Find or create chat with this user
-                    const existingChat = SAMPLE_CHATS.find(c => c.name === user.name);
-                    if (existingChat) {
-                      handleChatSelect(existingChat.id);
-                    } else {
-                      // In a real app, you would create a new chat with this user
-                      alert(`Starting new chat with ${user.name}`);
-                    }
-                  }}
-                >
-                  <div className="relative">
-                    <div className="h-12 w-12 rounded-full bg-violet-400 flex items-center justify-center mr-3">
-                      <span className="text-white font-medium">{user.avatar}</span>
-                    </div>
-                    {user.status === "online" && (
-                      <div className="absolute bottom-0 right-2 h-3 w-3 bg-green-500 rounded-full border-2 border-white"></div>
-                    )}
+          </div>
+        ) : error ? (
+          <div className="p-4 text-center text-red-500">
+            <p>{error}</p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="mt-2 text-violet-600 hover:underline"
+            >
+              Refresh
+            </button>
+          </div>
+        ) : (
+          <>
+            {activeTab === "chats" && (
+              <div className="divide-y divide-gray-200">
+                {filteredChats.length === 0 ? (
+                  <div className="p-4 text-center text-gray-500">
+                    {searchQuery ? "No chats match your search" : "No chats found"}
+                    <button 
+                      className="block mx-auto mt-2 text-violet-600 hover:underline"
+                      onClick={onNewChat}
+                    >
+                      Start a new chat
+                    </button>
                   </div>
-                  <div className="flex-1">
-                    <div className="flex justify-between items-center">
-                      <h3 className="font-medium text-gray-900">{user.name}</h3>
-                      <span className="text-xs text-gray-500">{user.lastSeen}</span>
+                ) : (
+                  filteredChats.map((chat) => (
+                    <div
+                      key={chat.id}
+                      className={`p-3 flex items-center hover:bg-gray-50 cursor-pointer ${
+                        selectedChatId === chat.id ? "bg-violet-50" : ""
+                      }`}
+                      onClick={() => handleChatSelect(chat.id)}
+                    >
+                      <div className="relative">
+                        <div className="h-12 w-12 rounded-full bg-violet-400 flex items-center justify-center mr-3">
+                          <span className="text-white font-medium">{chat.avatar}</span>
+                        </div>
+                        {chat.status === "online" && (
+                          <div className="absolute bottom-0 right-2 h-3 w-3 bg-green-500 rounded-full border-2 border-white"></div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-center">
+                          <h3 className="font-medium text-gray-900 truncate">
+                            {chat.name}
+                          </h3>
+                          <span className="text-xs text-gray-500">
+                            {chat.timestamp}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center mt-1">
+                          <p className="text-sm text-gray-500 truncate">
+                            {chat.lastMessage}
+                          </p>
+                          {chat.unread > 0 && (
+                            <div className="bg-violet-600 text-white rounded-full h-5 min-w-5 px-1.5 text-xs flex items-center justify-center">
+                              {chat.unread}
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <p className="text-sm text-gray-500 mt-1">{user.role}</p>
+                  ))
+                )}
+              </div>
+            )}
+            
+            {activeTab === "users" && (
+              <div className="divide-y divide-gray-200">
+                <div className="p-2 bg-gray-50 flex justify-between items-center">
+                  <div className="flex items-center">
+                    <Filter size={16} className="text-gray-500 mr-2" />
+                    <span className="text-sm text-gray-600">Filter</span>
+                  </div>
+                  <div className="flex items-center">
+                    <Circle size={8} className="text-green-500 mr-1" />
+                    <span className="text-sm text-gray-600">Online: {getActiveUsers()}</span>
                   </div>
                 </div>
-              ))
+                
+                {filteredUsers.length === 0 ? (
+                  <div className="p-4 text-center text-gray-500">
+                    {searchQuery ? "No users match your search" : "No users found"}
+                  </div>
+                ) : (
+                  filteredUsers.map((user) => (
+                    <div
+                      key={user.id}
+                      className="p-3 flex items-center hover:bg-gray-50 cursor-pointer"
+                      onClick={() => handleUserChatSelection(user)}
+                    >
+                      <div className="relative">
+                        <div className="h-12 w-12 rounded-full bg-violet-400 flex items-center justify-center mr-3">
+                          <span className="text-white font-medium">{user.avatar}</span>
+                        </div>
+                        {user.status === "online" && (
+                          <div className="absolute bottom-0 right-2 h-3 w-3 bg-green-500 rounded-full border-2 border-white"></div>
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex justify-between items-center">
+                          <h3 className="font-medium text-gray-900">{user.name}</h3>
+                          <span className="text-xs text-gray-500">{user.lastSeen}</span>
+                        </div>
+                        <p className="text-sm text-gray-500 mt-1 truncate">
+                          {user.email || user.role || "User"}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             )}
-          </div>
+          </>
         )}
       </div>
       
