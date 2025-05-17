@@ -80,7 +80,6 @@ const CommentSection = ({ postId, postType, initialCommentCount, onCommentCountC
   const handleCommentLike = async (commentId) => {
     try {
       const response = await api.toggleCommentLike(commentId);
-      // Update the comments state with the updated like information
       setComments(comments.map(comment => 
         comment.id === commentId 
           ? { 
