@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { io } from "socket.io-client";
-
-const SOCKET_URL = "http://localhost:5000"; // Make configurable if needed
+import { getMonitorSocket, onBPReading as registerBPListener, onPrediction as registerPredictionListener } from "../services/socket";
 
 export default function useSocket({
   isLive,
@@ -9,48 +7,70 @@ export default function useSocket({
   onPrediction,
   onError
 }) {
-  const socketRef = useRef(null);
-  const isLiveRef = useRef(isLive);
   const [connectionStatus, setConnectionStatus] = useState("disconnected");
   const [error, setError] = useState("");
-
+  const isLiveRef = useRef(isLive);
+  
   useEffect(() => {
     isLiveRef.current = isLive;
   }, [isLive]);
 
   useEffect(() => {
-    const socket = io(SOCKET_URL, {
-      withCredentials: true,
-      // transports: ["websocket"] // <-- Try commenting this out to allow fallback
-    });
+    // Use the centralized socket service instead of creating a new one
+    const socket = getMonitorSocket();
+    
+    if (!socket) {
+      setConnectionStatus("error");
+      setError("Failed to establish connection: No authentication token");
+      if (onError) onError();
+      return;
+    }
 
-    socket.on("connect", () => {
+    // Set up event listeners
+    const handleConnect = () => {
       setConnectionStatus("connected");
       setError("");
-    });
-    socket.on("disconnect", () => {
+    };
+    
+    const handleDisconnect = () => {
       setConnectionStatus("disconnected");
       setError("Connection to server lost. Please refresh the page.");
       if (onError) onError();
-    });
-    socket.on("connect_error", (err) => {
+    };
+    
+    const handleConnectError = (err) => {
       setConnectionStatus("error");
       setError(`Connection error: ${err.message}`);
       if (onError) onError();
-    });
+    };
 
-    socket.on("new_bp_reading", (data) => {
+    // Register health event handlers
+    const bpReadingCleanup = registerBPListener((data) => {
       if (isLiveRef.current && onBPReading) onBPReading(data);
     });
-    socket.on("prediction_result", (data) => {
+    
+    const predictionCleanup = registerPredictionListener((data) => {
       if (isLiveRef.current && onPrediction) onPrediction(data);
     });
 
-    socketRef.current = socket;
+    // Add socket event listeners
+    socket.on("connect", handleConnect);
+    socket.on("disconnect", handleDisconnect);
+    socket.on("connect_error", handleConnectError);
+
+    // Check initial connection status
+    setConnectionStatus(socket.connected ? "connected" : "disconnected");
+
+    // Cleanup when component unmounts
     return () => {
-      socket.disconnect();
+      socket.off("connect", handleConnect);
+      socket.off("disconnect", handleDisconnect);
+      socket.off("connect_error", handleConnectError);
+      
+      if (bpReadingCleanup) bpReadingCleanup();
+      if (predictionCleanup) predictionCleanup();
     };
-  }, []);
+  }, [onBPReading, onPrediction, onError]);
 
   return { connectionStatus, error };
 }
