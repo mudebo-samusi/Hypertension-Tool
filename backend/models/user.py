@@ -1,5 +1,12 @@
 from db import db
 from flask_login import UserMixin
+from datetime import datetime  # Import datetime
+
+# Association table for User contacts (many-to-many self-referential)
+user_contacts = db.Table('user_contacts',
+    db.Column('user_id', db.Integer, db.ForeignKey('user.id'), primary_key=True),
+    db.Column('contact_id', db.Integer, db.ForeignKey('user.id'), primary_key=True)
+)
 
 # User model
 class User(db.Model, UserMixin):
@@ -11,6 +18,8 @@ class User(db.Model, UserMixin):
     
     # Add is_active field with default=True
     is_active = db.Column(db.Boolean, default=True, nullable=False)
+    last_seen = db.Column(db.DateTime, nullable=True, default=datetime.utcnow)
+    is_online = db.Column(db.Boolean, default=False)
     
     # Additional fields for role-specific information
     patient_id = db.Column(db.Integer, nullable=True)  # For Care Taker role
@@ -27,3 +36,11 @@ class User(db.Model, UserMixin):
     likes     = db.relationship('Like', back_populates='user', lazy='dynamic')
     rooms          = db.relationship('ChatRoom', secondary='room_users', back_populates='users')    # :contentReference[oaicite:3]{index=3}
     sent_messages  = db.relationship('Message', back_populates='sender', lazy='dynamic')
+    contacts = db.relationship(
+        'User',
+        secondary=user_contacts,
+        primaryjoin=(user_contacts.c.user_id == id),
+        secondaryjoin=(user_contacts.c.contact_id == id),
+        backref=db.backref('contacted_by', lazy='dynamic'),
+        lazy='dynamic'
+    )
