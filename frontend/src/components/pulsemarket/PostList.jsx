@@ -68,9 +68,11 @@ const PostList = ({ onNewPost }) => {
               likes: response.count 
             } 
           : post
-      ));
+       ));
+      return response; // Return backend response for child to update its state
     } catch (error) {
       console.error('Error toggling like:', error);
+      return null;
     }
   };
 
@@ -96,7 +98,7 @@ const PostList = ({ onNewPost }) => {
         <Post 
           key={post.id} 
           post={post} 
-          onLikeToggle={() => handleLikeToggle(post.id)}
+          onLikeToggle={handleLikeToggle}
           onCommentCountChange={handleCommentCountChange}
         />
       ))}
