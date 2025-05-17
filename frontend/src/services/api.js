@@ -406,6 +406,34 @@ api.createReview = async (text) => {
     }
 };
 
+// Add Contact Management Methods
+api.getContacts = async () => {
+    try {
+        return await api.get('/api/chat/contacts');
+    } catch (error) {
+        console.error("Error fetching contacts:", error);
+        throw error;
+    }
+};
+
+api.addContact = async (userId) => {
+    try {
+        return await api.post('/api/chat/contacts', { user_id: userId });
+    } catch (error) {
+        console.error("Error adding contact:", error);
+        throw error;
+    }
+};
+
+api.removeContact = async (contactId) => {
+    try {
+        return await api.delete(`/api/chat/contacts/${contactId}`);
+    } catch (error) {
+        console.error("Error removing contact:", error);
+        throw error;
+    }
+};
+
 // Add assignTemporaryToken method
 api.assignTemporaryToken = async (token) => {
     try {
