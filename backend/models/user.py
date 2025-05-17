@@ -25,3 +25,5 @@ class User(db.Model, UserMixin):
     #relationship for comments
     comments = db.relationship('Comment', back_populates='author', lazy='dynamic')
     likes     = db.relationship('Like', back_populates='user', lazy='dynamic')
+    rooms          = db.relationship('ChatRoom', secondary='room_users', back_populates='users')    # :contentReference[oaicite:3]{index=3}
+    sent_messages  = db.relationship('Message', back_populates='sender', lazy='dynamic')
