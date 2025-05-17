@@ -8,6 +8,8 @@ import api from '../../services/api';
 const Ad = ({ ad, onLikeToggle, onCommentCountChange }) => {
   const [showComments, setShowComments] = useState(false);
   const [commentCount, setCommentCount] = useState(ad.comments);
+  const [likeCount, setLikeCount] = useState(ad.likes);
+  const [userLiked, setUserLiked] = useState(ad.userLiked);
   
   // Format date with validation
   const formatDate = (dateString) => {
@@ -37,6 +39,23 @@ const Ad = ({ ad, onLikeToggle, onCommentCountChange }) => {
     // Propagate to parent if needed
     if (onCommentCountChange) {
       onCommentCountChange(ad.id, newCount);
+    }
+  };
+
+  // Update like count and liked status after toggle
+  const handleLike = async () => {
+    try {
+      const response = await onLikeToggle(ad.id);
+      if (response && typeof response.count === 'number') {
+        setLikeCount(response.count);
+        setUserLiked(response.liked);
+      } else {
+        setLikeCount(userLiked ? likeCount - 1 : likeCount + 1);
+        setUserLiked(!userLiked);
+      }
+    } catch (e) {
+      setLikeCount(userLiked ? likeCount - 1 : likeCount + 1);
+      setUserLiked(!userLiked);
     }
   };
   
@@ -76,9 +95,9 @@ const Ad = ({ ad, onLikeToggle, onCommentCountChange }) => {
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4 text-gray-500">
             <LikeButton 
-              liked={ad.userLiked} 
-              count={ad.likes} 
-              onToggle={() => onLikeToggle(ad.id)}
+              liked={userLiked} 
+              count={likeCount} 
+              onToggle={handleLike}
             />
             
             <button 
