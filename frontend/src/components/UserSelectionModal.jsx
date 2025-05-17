@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { X, Search, UserPlus, Check } from "lucide-react";
 import api from "../services/api";
 
-export default function UserSelectionModal({ isOpen, onClose, onCreateChat }) {
+export default function UserSelectionModal({ isOpen, onClose, onCreateChat, preselectedUser }) {
   const [users, setUsers] = useState([]);
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [search, setSearch] = useState("");
@@ -38,10 +38,16 @@ export default function UserSelectionModal({ isOpen, onClose, onCreateChat }) {
     fetchUsers();
     
     // Reset state when modal opens
-    setSelectedUsers([]);
-    setChatName("");
-    setIsGroup(false);
-  }, [isOpen]);
+    if (preselectedUser) {
+      setSelectedUsers([preselectedUser.id]);
+      setIsGroup(false);
+      setChatName(preselectedUser.name || preselectedUser.username || "");
+    } else {
+      setSelectedUsers([]);
+      setChatName("");
+      setIsGroup(false);
+    }
+  }, [isOpen, preselectedUser]);
 
   // Filter users based on search
   const filteredUsers = users.filter(user => 
