@@ -42,6 +42,7 @@ from routes.ads import ads_bp
 from routes.comments import comments_bp
 from routes.likes import likes_bp
 from routes.profile import profile_bp
+from routes.chat import chat_bp, register_socketio_handlers
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -56,11 +57,11 @@ app.config["MAIL_PASSWORD"] = "your-email-password"
 app.config["MAIL_DEFAULT_SENDER"] = "your-email@gmail.com"
 
 # Update SocketIO to allow CORS properly
-socketio = SocketIO(app, cors_allowed_origins=["http://localhost:5173", "http://172.30.64.1:5173"], async_mode='threading')
+socketio = SocketIO(app, cors_allowed_origins=["http://localhost:5173", "http://192.168.171.235:5173"], async_mode='threading', manage_session=True)
 
 # Improve CORS configuration
 CORS(app, 
-     origins=["http://localhost:5173", "http://172.30.64.1:5173"],
+     origins=["http://localhost:5173", "http://192.168.171.235:5173"],
      methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
      allow_headers=["Content-Type", "Authorization"],
      expose_headers=["Content-Type", "Authorization"],
@@ -73,7 +74,7 @@ logging.basicConfig(level=logging.DEBUG)
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
-    default_limits=["200 per day", "50 per hour"]
+    default_limits=["200 per day", "100 per hour"]
 )
 
 # Initialize extensions
@@ -87,7 +88,6 @@ serializer = URLSafeTimedSerializer(app.config["SECRET_KEY"])
 with app.app_context():
     init_db(app)
     migrate = Migrate(app, db)  # Add this line to initialize Flask-Migrate
-    db.create_all()
 
 # Register blueprints
 app.register_blueprint(posts_bp)
@@ -95,6 +95,8 @@ app.register_blueprint(ads_bp)
 app.register_blueprint(comments_bp)
 app.register_blueprint(likes_bp)
 app.register_blueprint(profile_bp)
+app.register_blueprint(chat_bp)
+register_socketio_handlers(socketio)
 
 
 # Add JWT error handler
