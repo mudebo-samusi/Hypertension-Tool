@@ -1,5 +1,6 @@
-import React, { useState } from "react";
-import useSocket from "../hooks/useSocket"; // <-- new hook
+import React, { useState, useEffect } from "react";
+import useSocket from "../hooks/useSocket"; 
+import { initializeSocket } from "../services/socket";
 
 const BPMonitor = () => {
   const [systolic, setSystolic] = useState("");
@@ -7,6 +8,12 @@ const BPMonitor = () => {
   const [heartRate, setHeartRate] = useState("");
   const [result, setResult] = useState(null);
   const [isLive, setIsLive] = useState(false);
+
+  // Initialize monitor socket when the component loads
+  useEffect(() => {
+    // Initialize the monitor socket separately 
+    initializeSocket('monitor');
+  }, []);
 
   // Use custom hook for socket connection
   const { connectionStatus, error } = useSocket({
