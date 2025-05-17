@@ -89,18 +89,23 @@ const PulseMarket = () => {
 
   const handleLikeToggle = async (id, type) => {
     try {
-      // In a real app, this would be an API call to toggle like status
-      if (type === 'post') {
-        setPosts(posts.map(post => 
-          post.id === id ? { ...post, likes: post.userLiked ? post.likes - 1 : post.likes + 1, userLiked: !post.userLiked } : post
-        ));
-      } else {
-        setAds(ads.map(ad => 
-          ad.id === id ? { ...ad, likes: ad.userLiked ? ad.likes - 1 : ad.likes + 1, userLiked: !ad.userLiked } : ad
-        ));
+      const response = await api.togglePostLike(id);
+      if (response && typeof response.count === 'number') {
+        if (type === 'post') {
+          setPosts(posts.map(post => 
+            post.id === id ? { ...post, likes: response.count, userLiked: response.liked } : post
+          ));
+        } else {
+          setAds(ads.map(ad => 
+            ad.id === id ? { ...ad, likes: response.count, userLiked: response.liked } : ad
+          ));
+        }
+        return response;
       }
+      return null;
     } catch (error) {
       console.error("Error toggling like:", error);
+      return null;
     }
   };
 
@@ -175,7 +180,7 @@ const PulseMarket = () => {
                 <Post 
                   key={`post-${item.id}`} 
                   post={item} 
-                  onLikeToggle={() => handleLikeToggle(item.id, 'post')} 
+                  onLikeToggle={handleLikeToggle}
                 />
               );
             } else {
@@ -183,7 +188,7 @@ const PulseMarket = () => {
                 <Ad 
                   key={`ad-${item.id}`} 
                   ad={item} 
-                  onLikeToggle={() => handleLikeToggle(item.id, 'ad')} 
+                  onLikeToggle={handleLikeToggle}
                 />
               );
             }
