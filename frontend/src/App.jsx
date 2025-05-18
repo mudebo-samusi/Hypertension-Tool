@@ -35,46 +35,49 @@ import AnalyticsDashboard from "./components/AnalyticsDashboard";
 import OrgDashboard from "./components/OrgDashboard";
 import PulseConnect from "./components/PulseConnect";
 import PulseDoc from "./components/PulseDoc";
+import { TypingProvider } from './context/TypingContext';
 
 function App() {
   return (
     <Router>
       <AuthProvider>
-      <PaymentProvider>
-        <Navbar/>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/dashboard" element={<Dashboard/>} />
-          <Route path="/doctor-review" element={<DoctorReviews/>} />
-          <Route path="/" element={<Home/>} />
-          <Route path="/patients" element={<Patients/>} />
-          <Route path="/reviews" element={<Reviews/>} />
-          <Route path="/settings" element={<Settings/>} />
-          <Route path="/monitor" element={<BPMonitor />} />
-          <Route path="/charts" element={<BPChart />} />
-          <Route path="/history" element={<History />} />
-          <Route path="/profile" element={<Profile />} />
-          <Route path="/request-password-reset" element={<RequestPasswordReset />} />
-          <Route path="/reset-password" element={<ResetPassword />} />
-          <Route path="/chat" element={<Chat />} />
-          <Route path="/call-setup" element={<CallSetup />} />
-          <Route path="/voice-call" element={<VoiceCall />} />
-          <Route path="/video-call" element={<VideoCall />} />
-          <Route path="/pulse-market" element={<PulseMarket />} />
-          <Route path="/subscriptions" element={<Subscriptions />} />
-           {/* Payment System Routes */}
-          <Route path="/payments" element={<PaymentDashboard />} />
-          <Route path="/payments/new" element={<PaymentForm />} />
-          <Route path="/payments/history" element={<PaymentList />} />
-          <Route path="/payments/analytics" element={<PaymentAnalytics />} />
-          <Route path="/AI-analytics" element={<HypertensionAnalytics />} />
-          <Route path="/PulseCare" element={<AnalyticsDashboard />} />
-          <Route path="/PulseMedic" element={<OrgDashboard />} />
-          <Route path="/PulseConnect" element={<PulseConnect />} />
-          <Route path="/PulseDoc" element={<PulseDoc />} />
-        </Routes>
-        <Footer/>
+        <PaymentProvider>
+          <TypingProvider>
+            <Navbar/>
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
+              <Route path="/dashboard" element={<Dashboard/>} />
+              <Route path="/doctor-review" element={<DoctorReviews/>} />
+              <Route path="/" element={<Home/>} />
+              <Route path="/patients" element={<Patients/>} />
+              <Route path="/reviews" element={<Reviews/>} />
+              <Route path="/settings" element={<Settings/>} />
+              <Route path="/monitor" element={<BPMonitor />} />
+              <Route path="/charts" element={<BPChart />} />
+              <Route path="/history" element={<History />} />
+              <Route path="/profile" element={<Profile />} />
+              <Route path="/request-password-reset" element={<RequestPasswordReset />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
+              <Route path="/chat" element={<Chat />} />
+              <Route path="/call-setup" element={<CallSetup />} />
+              <Route path="/voice-call" element={<VoiceCall />} />
+              <Route path="/video-call" element={<VideoCall />} />
+              <Route path="/pulse-market" element={<PulseMarket />} />
+              <Route path="/subscriptions" element={<Subscriptions />} />
+              {/* Payment System Routes */}
+              <Route path="/payments" element={<PaymentDashboard />} />
+              <Route path="/payments/new" element={<PaymentForm />} />
+              <Route path="/payments/history" element={<PaymentList />} />
+              <Route path="/payments/analytics" element={<PaymentAnalytics />} />
+              <Route path="/AI-analytics" element={<HypertensionAnalytics />} />
+              <Route path="/PulseCare" element={<AnalyticsDashboard />} />
+              <Route path="/PulseMedic" element={<OrgDashboard />} />
+              <Route path="/PulseConnect" element={<PulseConnect />} />
+              <Route path="/PulseDoc" element={<PulseDoc />} />
+            </Routes>
+            <Footer/>
+          </TypingProvider>
         </PaymentProvider>
       </AuthProvider>
     </Router>

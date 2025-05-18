@@ -16,10 +16,62 @@ import {
   disconnect,
   getSocket
 } from "../services/socket";
+import { useTyping } from '../context/TypingContext';
+import { useSocket } from '../context/SocketContext';
+
+const ChatInput = ({ onSend, disabled }) => {
+  const [input, setInput] = useState("");
+  const textareaRef = useRef(null);
+  const MAX_HEIGHT = 80;
+
+  const handleChange = e => {
+    setInput(e.target.value);
+  };
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+
+    el.style.height = "auto";
+    const newHeight = Math.min(el.scrollHeight, MAX_HEIGHT);
+    el.style.height = newHeight + "px";
+    el.style.overflowY = el.scrollHeight > MAX_HEIGHT ? "auto" : "hidden";
+  }, [input]);
+
+  const handleKeyDown = e => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (input.trim()) {
+        onSend(input);
+        setInput("");
+      }
+    }
+  };
+
+  return (
+    <textarea
+      ref={textareaRef}
+      value={input}
+      onChange={handleChange}
+      onKeyDown={handleKeyDown}
+      placeholder="Type your message..."
+      rows={1}
+      className="flex-1 bg-transparent resize-none outline-none text-sm leading-tight py-2"
+      style={{
+        maxHeight: MAX_HEIGHT + "px",
+        overflowY: "hidden"
+      }}
+      spellCheck="false"
+    />
+  );
+};
 
 export default function Chat() {
   const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState("");
+  const [messagesCache, setMessagesCache] = useState({}); // Add message cache by room ID
+  const [lastCacheUpdate, setLastCacheUpdate] = useState({}); // Track when each cache was last updated
+  const CACHE_TTL = 10 * 60 * 1000; // 10 minutes in milliseconds
+  const initialLoadRef = useRef({}); // Track initial loads to prevent duplicate requests
   const [isTyping, setIsTyping] = useState(false);
   const [typingUsers, setTypingUsers] = useState([]);
   const endOfMessagesRef = useRef(null);
@@ -40,19 +92,54 @@ export default function Chat() {
   const [oldestMessageId, setOldestMessageId] = useState(null);
   const messageContainerRef = useRef(null);
   const lastTypingUpdateRef = useRef(0);
+  const lastTypingEventRef = useRef(0);
+  const typingStateRef = useRef(false);
+  const TYPING_THROTTLE = 3000; // Only send typing status every 3 seconds
+
+  const { startTyping, stopTyping, isTyping: isUserTyping } = useTyping();
+  const { isTypingBlocked } = useSocket();
 
   const scrollToBottom = () => {
     endOfMessagesRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  // Function to load chat history
-  const loadChatHistory = useCallback(async () => {
-    if (!selectedChatId || !hasMoreMessages || loadingHistory) return;
+  // Enhanced cache update function with timestamp
+  const updateMessageCache = useCallback((roomId, newMessages) => {
+    setMessagesCache(prevCache => ({
+      ...prevCache,
+      [roomId]: newMessages
+    }));
+    setLastCacheUpdate(prev => ({
+      ...prev,
+      [roomId]: Date.now()
+    }));
+  }, []);
+
+  // Check if cache is valid (not expired)
+  const isCacheValid = useCallback((roomId) => {
+    const lastUpdate = lastCacheUpdate[roomId];
+    if (!lastUpdate) return false;
+    return (Date.now() - lastUpdate) < CACHE_TTL;
+  }, [lastCacheUpdate]);
+
+  // Enhanced function to handle cache misses gracefully
+  const loadChatHistory = useCallback(async (isInitialLoad = false) => {
+    if (!selectedChatId || loadingHistory) return;
+    
+    if (isInitialLoad && initialLoadRef.current[selectedChatId]) {
+      return; // Prevent duplicate initial loads
+    }
+    
+    if (isInitialLoad) {
+      initialLoadRef.current[selectedChatId] = true;
+    }
+    
+    if (!hasMoreMessages && !isInitialLoad) return;
 
     setLoadingHistory(true);
     try {
       const params = { limit: 20 };
-      if (oldestMessageId) params.before = oldestMessageId;
+      if (oldestMessageId && !isInitialLoad) params.before = oldestMessageId;
 
       const messagesData = await api.get(`/api/chat/rooms/${selectedChatId}/messages`, { params });
       if (Array.isArray(messagesData) && messagesData.length > 0) {
@@ -64,28 +151,67 @@ export default function Chat() {
           timestamp: new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           serverTimestamp: message.timestamp,
         }));
-        setMessages(prev => [...transformedMessages, ...prev]);
-        setOldestMessageId(messagesData[0].id);
+        
+        if (isInitialLoad) {
+          setMessages(transformedMessages);
+          updateMessageCache(selectedChatId, transformedMessages);
+          setOldestMessageId(messagesData[0].id);
+        } else {
+          setMessages(prev => {
+            const updatedMessages = [...transformedMessages, ...prev];
+            updateMessageCache(selectedChatId, updatedMessages);
+            return updatedMessages;
+          });
+          if (messagesData.length > 0) {
+            setOldestMessageId(messagesData[0].id);
+          }
+        }
+        
         setHasMoreMessages(messagesData.length === params.limit);
       } else {
+        if (isInitialLoad) {
+          // No messages in this chat yet
+          setMessages([]);
+          updateMessageCache(selectedChatId, []);
+        }
         setHasMoreMessages(false);
       }
     } catch (error) {
       console.error("Error loading chat history:", error);
       setHasMoreMessages(false);
+      if (isInitialLoad) {
+        const errorMessage = {
+          id: 'error-loading-messages',
+          text: `Failed to load messages. ${error.message || 'Please try again.'}`.trim(),
+          sender: "system",
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+        setMessages([errorMessage]);
+      }
     } finally {
       setLoadingHistory(false);
     }
-  }, [selectedChatId, hasMoreMessages, loadingHistory, oldestMessageId, currentUser]);
+  }, [selectedChatId, hasMoreMessages, loadingHistory, oldestMessageId, currentUser, updateMessageCache]);
 
-  // Handle scroll to load more history
+  const updateTypingStatus = useCallback((isTyping) => {
+    const now = Date.now();
+    if (
+      selectedChatId &&
+      (isTyping !== typingStateRef.current || 
+       now - lastTypingEventRef.current >= TYPING_THROTTLE)
+    ) {
+      sendTyping(selectedChatId, isTyping);
+      lastTypingEventRef.current = now;
+      typingStateRef.current = isTyping;
+    }
+  }, [selectedChatId]);
+
   const handleScroll = useCallback(() => {
     if (messageContainerRef.current.scrollTop < 50 && hasMoreMessages && !loadingHistory) {
       loadChatHistory();
     }
   }, [hasMoreMessages, loadingHistory, loadChatHistory]);
 
-  // Initialize socket, fetch chat rooms and current user
   useEffect(() => {
     const initChat = async () => {
       const socket = initializeSocket('chat');
@@ -123,7 +249,6 @@ export default function Chat() {
     };
   }, []);
 
-  // Add: refresh chat rooms after adding/removing contacts or creating new chat
   const refreshChatRooms = async () => {
     try {
       const rooms = await api.listChatRooms();
@@ -133,7 +258,6 @@ export default function Chat() {
     }
   };
 
-  // Effect for handling room selection, fetching messages, and joining/leaving rooms
   useEffect(() => {
     const manageRoomConnectionAndMessages = async () => {
       if (previousSelectedChatIdRef.current && previousSelectedChatIdRef.current !== selectedChatId) {
@@ -166,20 +290,54 @@ export default function Chat() {
         joinRoom(selectedChatId);
         console.log(`Joined room ${selectedChatId}`);
         
-        setMessages([]);
-        setOldestMessageId(null);
-        setHasMoreMessages(true);
-        await loadChatHistory();
+        // Enhanced cache logic with validation
+        if (messagesCache[selectedChatId] && isCacheValid(selectedChatId)) {
+          console.log(`Using cached messages for room ${selectedChatId}`);
+          setMessages(messagesCache[selectedChatId]);
+          setOldestMessageId(messagesCache[selectedChatId][0]?.id || null);
+          setHasMoreMessages(true);
+          
+          // Optionally fetch newest messages in background to ensure cache is up-to-date
+          setTimeout(() => {
+            if (isMounted) {
+              api.get(`/api/chat/rooms/${selectedChatId}/messages`, { params: { limit: 5 } })
+                .then(newestMessages => {
+                  if (Array.isArray(newestMessages) && newestMessages.length > 0) {
+                    const lastCachedMessageTime = messagesCache[selectedChatId]?.[messagesCache[selectedChatId].length - 1]?.serverTimestamp;
+                    const hasNewMessages = newestMessages.some(msg => 
+                      !lastCachedMessageTime || new Date(msg.timestamp) > new Date(lastCachedMessageTime)
+                    );
+                    
+                    if (hasNewMessages) {
+                      console.log("Cache is outdated, refreshing messages");
+                      loadChatHistory(true); // Reload with fresh data
+                    }
+                  }
+                })
+                .catch(err => console.error("Error checking for new messages:", err));
+            }
+          }, 100);
+        } else {
+          // Cache miss or invalid cache
+          console.log(`Cache miss or invalid for room ${selectedChatId}, loading from server`);
+          setMessages([]);
+          setOldestMessageId(null);
+          setHasMoreMessages(true);
+          await loadChatHistory(true);
+        }
         
       } catch (error) {
         console.error(`Error setting up chat for room ${selectedChatId}:`, error);
         if (isMounted) {
-          setMessages([{
+          const errorMessage = {
             id: 'error-setup-chat',
             text: `Failed to load messages. ${error.message || 'Please try again.'}`.trim(),
             sender: "system",
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          }]);
+          };
+          
+          setMessages([errorMessage]);
+          // Don't cache error messages
         }
       } finally {
         if (isMounted) {
@@ -189,22 +347,28 @@ export default function Chat() {
     };
 
     manageRoomConnectionAndMessages();
-  }, [selectedChatId, chatRooms, currentUser]);
+  }, [selectedChatId, chatRooms, currentUser, messagesCache, updateMessageCache, loadChatHistory, isCacheValid]);
 
-  // Socket event listeners
   useEffect(() => {
     if (!selectedChatId || !currentUser) return;
 
     const messageHandler = (data) => {
       if (data.room === selectedChatId) {
-        setMessages(prev => [...prev, {
+        const newMessage = {
           id: data.id,
           text: data.content,
           sender: data.sender.id === currentUser.id ? "user" : "bot",
           senderInfo: data.sender,
           timestamp: new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           serverTimestamp: data.timestamp,
-        }]);
+        };
+        
+        setMessages(prev => {
+          const updatedMessages = [...prev, newMessage];
+          // Update cache when receiving new message
+          updateMessageCache(selectedChatId, updatedMessages);
+          return updatedMessages;
+        });
       }
     };
     
@@ -235,7 +399,7 @@ export default function Chat() {
       cleanupTyping();
       onStatus(() => {});
     };
-  }, [selectedChatId, currentUser]);
+  }, [selectedChatId, currentUser, updateMessageCache]);
 
   useEffect(() => {
     scrollToBottom();
@@ -280,65 +444,32 @@ export default function Chat() {
     }
   }, [messages, selectedChatId, currentUser, chatRooms]);
 
-  const sendMessage = () => {
-    if (!input.trim() || !selectedChatId || !currentUser) return;
-    
-    const messageText = input.trim();
+  const sendMessage = useCallback((messageText) => {
+    if (!messageText?.trim() || !selectedChatId || !currentUser) return;
     
     const tempId = `temp_${Date.now()}`;
     const timestamp = new Date();
     const newMessage = {
       id: tempId,
-      text: messageText,
+      text: messageText.trim(),
       sender: "user",
       timestamp: timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       serverTimestamp: timestamp.toISOString(),
       pending: true
     };
     
-    setMessages(prev => [...prev, newMessage]);
-    setInput("");
+    setMessages(prev => {
+      const updatedMessages = [...prev, newMessage];
+      // Update cache when sending new message
+      updateMessageCache(selectedChatId, updatedMessages);
+      return updatedMessages;
+    });
     
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
-      typingTimeoutRef.current = null;
-    }
-    sendTyping(selectedChatId, false);
+    stopTyping();
+    updateTypingStatus(false);
     
-    socketSendMessage(selectedChatId, messageText);
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  };
-
-  const handleInputChange = (e) => {
-    const value = e.target.value;
-    setInput(value);
-
-    if (selectedChatId) {
-      const now = Date.now();
-      if (value.trim().length > 0 && now - lastTypingUpdateRef.current > 2500) {
-        sendTyping(selectedChatId, true);
-        lastTypingUpdateRef.current = now;
-      }
-
-      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-      if (value.trim().length > 0) {
-        typingTimeoutRef.current = setTimeout(() => {
-          sendTyping(selectedChatId, false);
-          typingTimeoutRef.current = null;
-          lastTypingUpdateRef.current = 0;
-        }, 3000);
-      } else {
-        sendTyping(selectedChatId, false);
-        lastTypingUpdateRef.current = 0;
-      }
-    }
-  };
+    socketSendMessage(selectedChatId, messageText.trim());
+  }, [selectedChatId, currentUser, stopTyping, updateTypingStatus, updateMessageCache]);
 
   const initiateCall = (type) => {
     navigate('/call-setup', { 
@@ -354,11 +485,26 @@ export default function Chat() {
     }
   };
 
-  // Handle new chat from user or contact
   const handleNewChat = (user = null) => {
     setPreselectedUser(user || null);
     setShowUserModal(true);
   };
+
+  const refreshChatCache = useCallback((roomId = null) => {
+    if (roomId) {
+      // Invalidate specific room cache
+      setLastCacheUpdate(prev => ({...prev, [roomId]: null}));
+      if (roomId === selectedChatId) {
+        loadChatHistory(true);
+      }
+    } else {
+      // Invalidate all caches
+      setLastCacheUpdate({});
+      if (selectedChatId) {
+        loadChatHistory(true);
+      }
+    }
+  }, [selectedChatId, loadChatHistory]);
 
   const createNewChat = async (name, userIds, isGroup) => {
     try {
@@ -390,6 +536,10 @@ export default function Chat() {
       setSelectedChatId(newRoomData.id);
       setShowUserModal(false);
       setPreselectedUser(null);
+      
+      // Make sure we don't use any stale cache for the new chat
+      refreshChatCache(newRoomData.id);
+      
       await refreshChatRooms();
     } catch (error) {
       console.error("Error creating new chat:", error);
@@ -611,32 +761,18 @@ export default function Chat() {
           <button className="text-gray-500 hover:text-violet-600 mr-2 p-2 self-center">
             <Paperclip size={20} />
           </button>
-          <textarea
-            className="flex-1 bg-transparent border-none resize-none outline-none text-sm leading-tight py-2"
-            placeholder="Type your message..."
-            rows="1"
-            value={input}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            autoComplete="off"
-            spellCheck="false"
-            onFocus={() => setTimeout(scrollToBottom, 100)}
-            onInput={(e) => {
-              const el = e.target;
-              el.style.height = 'auto';
-              const maxHeight = 80;
-              el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
-            }}
-            style={{ maxHeight: '80px' }}
+          <ChatInput 
+            onSend={sendMessage}
+            disabled={!selectedChatId}
           />
           <button className="text-gray-500 hover:text-violet-600 mx-1 p-2 self-center">
             <Mic size={20} />
           </button>
           <button
-            onClick={sendMessage}
-            disabled={!input.trim() || !selectedChatId}
+            onClick={() => sendMessage(input)}
+            disabled={!selectedChatId}
             className={`ml-2 p-2 rounded-full self-center ${
-              input.trim() && selectedChatId
+              selectedChatId
                 ? "bg-violet-600 text-white hover:bg-violet-700" 
                 : "bg-gray-300 text-gray-400 cursor-not-allowed"
             } transition-colors`}
@@ -656,6 +792,14 @@ export default function Chat() {
     }
   }, [handleScroll]);
 
+  useEffect(() => {
+    return () => {
+      // Handle cleanup and cache invalidation on unmount
+      console.log("Chat component unmounting, cleaning up resources");
+      disconnect();
+    };
+  }, []);
+
   return (
     <div className="h-screen w-screen flex items-center justify-center bg-gray-100">
       <div className="flex h-full w-full max-w-screen-lg bg-white shadow-xl rounded-lg overflow-hidden">
@@ -667,7 +811,6 @@ export default function Chat() {
             onClose={() => setShowSidebar(false)}
             onNewChat={handleNewChat}
             onNewContact={async () => {
-              // Optionally, open a modal to add a new contact, then refresh contacts/chatRooms
               await refreshChatRooms();
             }}
             chatRooms={chatRooms}

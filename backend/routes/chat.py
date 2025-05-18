@@ -6,7 +6,7 @@ from models.user import User
 from db import db
 from flask_socketio import join_room, leave_room, emit
 import socketio  # Import the main socketio library for exceptions
-from datetime import datetime  # Import datetime
+from datetime import datetime, timedelta  # Import datetime and timedelta
 
 chat_bp = Blueprint('chat_bp', __name__, url_prefix='/api/chat')
 
@@ -272,6 +272,10 @@ def remove_contact(contact_id):
     return jsonify({'message': 'Contact removed successfully'}), 200
 
 def register_socketio_handlers(socketio_instance, namespace_path):
+    # Add typing status rate limiting
+    typing_status_cache = {}
+    TYPING_THROTTLE = timedelta(seconds=2)
+
     @socketio_instance.on('connect', namespace=namespace_path)
     def handle_connect():
         sid = request.sid
@@ -431,6 +435,19 @@ def register_socketio_handlers(socketio_instance, namespace_path):
         if not room_id_str:
             socketio_instance.emit('error', {'msg': 'Room ID is required for typing event.'}, namespace=namespace_path)
             return
+
+        # Rate limit typing status updates
+        cache_key = f"{user_id}_{room_id_str}"
+        now = datetime.utcnow()
+        last_update = typing_status_cache.get(cache_key)
+
+        if last_update and now - last_update < TYPING_THROTTLE:
+            return
+
+        typing_status_cache[cache_key] = now
+
+        # Clean up old cache entries
+        typing_status_cache.clear()
 
         socketio_instance.emit('typing_status', {
             'userId': user_id,

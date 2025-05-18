@@ -186,19 +186,33 @@ export function onStatus(cb) {
     if (socket) socket.on('status', cb);
 }
 
-// Add typing indicators
+// Add throttling for typing events
+let typingThrottleTimers = {};
+
 export function sendTyping(roomId, isTyping) {
     const socket = getSocket('chat');
-    if (socket && socket.connected) {
-        socket.emit('typing', { room: roomId, isTyping });
-        return true;
-    } else {
-        console.error('Cannot send typing status: Socket not connected');
-        
-        // Try to reconnect socket
-        initializeSocket('chat');
+    if (!socket || !socket.connected) {
         return false;
     }
+
+    const throttleKey = `${roomId}_typing`;
+    
+    // If the status is the same and throttled, skip update
+    if (typingThrottleTimers[throttleKey]) {
+        return true;
+    }
+
+    socket.emit('typing', { room: roomId, isTyping });
+    
+    // Only throttle if user is typing
+    // Allow immediate update when stopping typing
+    if (isTyping) {
+        typingThrottleTimers[throttleKey] = setTimeout(() => {
+            delete typingThrottleTimers[throttleKey];
+        }, 2000);
+    }
+
+    return true;
 }
 
 export function onTyping(cb) {
@@ -235,6 +249,11 @@ export function disconnect() {
             socketInstances[namespace] = null;
         }
     });
+
+    Object.keys(typingThrottleTimers).forEach(key => {
+        clearTimeout(typingThrottleTimers[key]);
+    });
+    typingThrottleTimers = {};
 }
 
 // Function to check if a specific socket is currently connected

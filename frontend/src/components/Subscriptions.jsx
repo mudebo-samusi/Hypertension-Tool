@@ -36,7 +36,7 @@ const Subscriptions = () => {
     },
     {
       name: "Silver",
-      price: { monthly: 9.99, annually: 99.99 },
+      price: { monthly: 1.40, annually: 16.80 },
       features: [
         { name: "Messages", included: true },
         { name: "Normal Posts", included: true },
@@ -48,7 +48,7 @@ const Subscriptions = () => {
     },
     {
       name: "Gold",
-      price: { monthly: 19.99, annually: 199.99 },
+      price: { monthly: 14.00, annually: 168.00 },
       features: [
         { name: "Messages", included: true },
         { name: "Normal Posts", included: true },
@@ -60,7 +60,7 @@ const Subscriptions = () => {
     },
     {
       name: "Premium",
-      price: { monthly: 29.99, annually: 299.99 },
+      price: { monthly: 29.99, annually: 359.88 },
       features: [
         { name: "Messages", included: true },
         { name: "Normal Posts", included: true },

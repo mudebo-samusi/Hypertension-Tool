@@ -9,6 +9,7 @@ export const SocketContext = createContext({
     monitor: false
   },
   reconnect: () => {},
+  isTypingBlocked: false,
 });
 
 export const SocketProvider = ({ children }) => {
@@ -17,6 +18,7 @@ export const SocketProvider = ({ children }) => {
     chat: false,
     monitor: false
   });
+  const [isTypingBlocked, setIsTypingBlocked] = useState(false);
   
   useEffect(() => {
     // Initialize sockets when user is authenticated
@@ -30,6 +32,16 @@ export const SocketProvider = ({ children }) => {
         
         chatSocket.on('disconnect', () => {
           setConnected(prev => ({ ...prev, chat: false }));
+          setIsTypingBlocked(false); // Reset typing block on disconnect
+        });
+        
+        // Add typing event handlers
+        chatSocket.on('typing:start', () => {
+          setIsTypingBlocked(true);
+        });
+        
+        chatSocket.on('typing:stop', () => {
+          setIsTypingBlocked(false);
         });
       }
       
@@ -54,6 +66,7 @@ export const SocketProvider = ({ children }) => {
       // Clean up sockets when user logs out
       disconnect();
       setConnected({ chat: false, monitor: false });
+      setIsTypingBlocked(false);
     }
     
     // Clean up on unmount
@@ -77,7 +90,8 @@ export const SocketProvider = ({ children }) => {
   return (
     <SocketContext.Provider value={{ 
       connected, 
-      reconnect: handleReconnect
+      reconnect: handleReconnect,
+      isTypingBlocked
     }}>
       {children}
     </SocketContext.Provider>
