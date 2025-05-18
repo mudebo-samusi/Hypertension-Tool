@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getMonitorSocket, onBPReading as registerBPListener, onPrediction as registerPredictionListener } from "../services/socket";
+import { getMonitorSocket, onBPReading as registerBPListener, onPrediction as registerPredictionListener, initializeSocket } from "../services/socket";
 
 export default function useSocket({
   isLive,
@@ -13,11 +13,18 @@ export default function useSocket({
   
   useEffect(() => {
     isLiveRef.current = isLive;
-  }, [isLive]);
+    
+    // Actively try to connect when isLive becomes true
+    if (isLive && connectionStatus !== "connected") {
+      initializeSocket('monitor');
+    }
+  }, [isLive, connectionStatus]);
 
   useEffect(() => {
     // Use the centralized socket service instead of creating a new one
     const socket = getMonitorSocket();
+    console.log("Monitor socket obtained:", socket ? "Yes" : "No", 
+                "Connected:", socket?.connected ? "Yes" : "No");
     
     if (!socket) {
       setConnectionStatus("error");
@@ -25,6 +32,15 @@ export default function useSocket({
       if (onError) onError();
       return;
     }
+
+    // Test direct event listener for troubleshooting
+    socket.on("new_bp_reading", (data) => {
+      console.log("Direct BP reading event received:", data);
+    });
+    
+    socket.on("prediction_result", (data) => {
+      console.log("Direct prediction event received:", data);
+    });
 
     // Set up event listeners
     const handleConnect = () => {
@@ -44,13 +60,19 @@ export default function useSocket({
       if (onError) onError();
     };
 
-    // Register health event handlers
+    // Register health event handlers with explicit logging
     const bpReadingCleanup = registerBPListener((data) => {
-      if (isLiveRef.current && onBPReading) onBPReading(data);
+      console.log("BP reading callback triggered:", data, "isLive:", isLiveRef.current);
+      if (isLiveRef.current && onBPReading) {
+        onBPReading(data);
+      }
     });
     
     const predictionCleanup = registerPredictionListener((data) => {
-      if (isLiveRef.current && onPrediction) onPrediction(data);
+      console.log("Prediction callback triggered:", data, "isLive:", isLiveRef.current);
+      if (isLiveRef.current && onPrediction) {
+        onPrediction(data);
+      }
     });
 
     // Add socket event listeners

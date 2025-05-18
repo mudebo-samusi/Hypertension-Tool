@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import useSocket from "../hooks/useSocket"; 
-import { initializeSocket } from "../services/socket";
+import { initializeSocket, reconnect } from "../services/socket";
 
 const BPMonitor = () => {
   const [systolic, setSystolic] = useState("");
@@ -15,16 +15,21 @@ const BPMonitor = () => {
     initializeSocket('monitor');
   }, []);
 
-  // Use custom hook for socket connection
+  // Use custom hook for socket connection with additional debug logging
   const { connectionStatus, error } = useSocket({
     isLive,
     onBPReading: (data) => {
+      console.log("BP Reading received from socket:", data);
       if (data.systolic) setSystolic(data.systolic);
       if (data.diastolic) setDiastolic(data.diastolic);
       if (data.heart_rate) setHeartRate(data.heart_rate);
     },
-    onPrediction: (data) => setResult(data),
+    onPrediction: (data) => {
+      console.log("Prediction received from socket:", data);
+      setResult(data);
+    },
     onError: () => {
+      console.error("Socket connection error occurred");
       setSystolic("");
       setDiastolic("");
       setHeartRate("");
@@ -33,8 +38,15 @@ const BPMonitor = () => {
   });
 
   const toggleLiveMonitoring = () => {
-    setIsLive((prev) => !prev);
-    if (isLive) {
+    const newLiveStatus = !isLive;
+    setIsLive(newLiveStatus);
+    
+    // If turning on live monitoring, ensure socket is connected
+    if (newLiveStatus && connectionStatus !== 'connected') {
+      reconnect('monitor');
+    }
+    
+    if (!newLiveStatus) {
       setSystolic("");
       setDiastolic("");
       setHeartRate("");

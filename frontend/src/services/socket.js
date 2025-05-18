@@ -128,6 +128,14 @@ export function initializeSocket(namespace = 'chat') {
     return socketInstances[namespace];
 }
 
+// Function to ensure socket is ready for a specific namespace
+export function ensureSocketReady(namespace = 'chat') {
+    if (!socketInstances[namespace] || !socketInstances[namespace].connected) {
+        return initializeSocket(namespace);
+    }
+    return socketInstances[namespace];
+}
+
 // Get socket or initialize a new one
 export function getSocket(namespace = 'chat') {
     if (!socketInstances[namespace] || !socketInstances[namespace].connected) {
@@ -138,7 +146,11 @@ export function getSocket(namespace = 'chat') {
 
 // Function to specifically get the monitor socket 
 export function getMonitorSocket() {
-    return getSocket('monitor');
+    console.log("Getting monitor socket. Current status:", 
+                socketInstances.monitor ? 
+                (socketInstances.monitor.connected ? "Connected" : "Disconnected") : 
+                "Not initialized");
+    return ensureSocketReady('monitor');
 }
 
 // Join a chat room
@@ -226,7 +238,12 @@ export function onTyping(cb) {
 // Monitor-specific events
 export function onBPReading(cb) {
     const socket = getSocket('monitor');
-    if (socket) socket.on('new_bp_reading', cb);
+    if (socket) {
+        console.log("Registering onBPReading listener on monitor socket");
+        socket.on('new_bp_reading', cb);
+    } else {
+        console.error("Failed to register onBPReading: No socket available");
+    }
     return () => {
         if (socket) socket.off('new_bp_reading', cb);
     };
@@ -234,7 +251,12 @@ export function onBPReading(cb) {
 
 export function onPrediction(cb) {
     const socket = getSocket('monitor');
-    if (socket) socket.on('prediction_result', cb);
+    if (socket) {
+        console.log("Registering onPrediction listener on monitor socket");
+        socket.on('prediction_result', cb);
+    } else {
+        console.error("Failed to register onPrediction: No socket available");
+    }
     return () => {
         if (socket) socket.off('prediction_result', cb);
     };

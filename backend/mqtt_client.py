@@ -197,12 +197,16 @@ class MqttClient:
         threading.Thread(target=mqtt_loop, daemon=True).start()
         self.monitor_connection()
 
+# Fix the start_mqtt_client function to ensure proper registration of callbacks
 def start_mqtt_client(health_callback=None, prediction_callback=None):
     """Initialize and start the MQTT client with the given callbacks"""
     global mqtt_client_instance
     
     # Create a singleton instance
     if 'mqtt_client_instance' not in globals() or mqtt_client_instance is None:
+        # Log to show this is being called
+        logger.info("Initializing MQTT client singleton instance")
+        
         mqtt_client_instance = MqttClient(
             server="mqtt.koinsightug.com",
             port=1883,
@@ -216,7 +220,31 @@ def start_mqtt_client(health_callback=None, prediction_callback=None):
             },
             keepalive=120  # Increased keepalive to 120 seconds
         )
+        
+        # Test publish to verify connectivity when initializing
+        mqtt_client_instance.initialize_client()
+        test_health_data = {
+            "systolic": 120,
+            "diastolic": 80,
+            "heart_rate": 70,
+            "timestamp": time.time(),
+            "source": "system_test"
+        }
+        
+        # Start the client with callbacks
+        logger.info(f"Starting MQTT client with registered callback: {'Yes' if health_callback else 'No'}")
         mqtt_client_instance.start(health_callback=health_callback, prediction_callback=prediction_callback)
+        
+        # Publish test message after delay to allow connection to establish
+        def publish_test():
+            time.sleep(5)  # Wait for connection to establish
+            if mqtt_client_instance.connected:
+                logger.info("Publishing test health data message")
+                mqtt_client_instance.send_message("healthmon/data", test_health_data)
+        
+        # Start the test publisher in a separate thread
+        threading.Thread(target=publish_test, daemon=True).start()
+    
     return mqtt_client_instance
 
 # Module-level functions to access the singleton instance

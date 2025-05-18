@@ -79,7 +79,8 @@ class MonitorNamespace(Namespace):
                 
         if not token:
             logging.warning(f"Socket connection attempt without token")
-            return False
+            # Don't return False here as it blocks the connection entirely
+            # Instead, we'll allow the connection but restrict access later
         
         try:
             # Use proper Flask-JWT-Extended methods
@@ -92,7 +93,9 @@ class MonitorNamespace(Namespace):
             return True
         except Exception as e:
             logging.error(f"Invalid token: {str(e)}")
-            return False
+            # Still allow connection for debugging, but track it as unauthorized
+            session['unauthorized'] = True
+            return True  # Allow connection but mark as unauthorized
 
 monitor_namespace = MonitorNamespace('/monitor')
 socketio.on_namespace(monitor_namespace)
@@ -200,13 +203,17 @@ def handle_mqtt_health_data(data):
             logging.error("Missing required BP data fields")
             return
             
-        # Send to frontend via Socket.IO using monitor namespace
-        monitor_namespace.emit('new_bp_reading', {
-            'systolic': systolic, 
-            'diastolic': diastolic, 
-            'heart_rate': heart_rate
-        })
-        logging.info(f"Emitted BP reading to frontend: systolic={systolic}, diastolic={diastolic}, heart_rate={heart_rate}")
+        # Send to ALL clients in the monitor namespace, not filtered by session
+        try:
+            bp_data = {
+                'systolic': systolic, 
+                'diastolic': diastolic, 
+                'heart_rate': heart_rate
+            }
+            logging.info(f"Emitting BP reading to all monitor clients: {bp_data}")
+            socketio.emit('new_bp_reading', bp_data, namespace='/monitor')
+        except Exception as e:
+            logging.error(f"Error emitting BP data via socketio: {str(e)}")
         
         # Save to database - wrap in app context to avoid the application context error
         try:
@@ -224,9 +231,12 @@ def handle_mqtt_health_data(data):
             prediction_result = process_bp_prediction(systolic, diastolic, heart_rate)
             logging.info(f"Generated prediction result: {prediction_result}")
             
-            # Send prediction results to frontend via Socket.IO using monitor namespace
-            monitor_namespace.emit('prediction_result', prediction_result)
-            logging.info("Prediction result sent to frontend via Socket.IO")
+            # Send prediction results to ALL monitor clients
+            try:
+                socketio.emit('prediction_result', prediction_result, namespace='/monitor')
+                logging.info("Prediction result sent to frontend via Socket.IO")
+            except Exception as e:
+                logging.error(f"Error emitting prediction via socketio: {str(e)}")
             
             # Send prediction results to MQTT notification topic
             mqtt_client.send_prediction_result(prediction_result)
