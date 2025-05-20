@@ -923,6 +923,64 @@ api.createChatRoom = async (name, userIds, isGroup) => {
     }
 };
 
+// Add doctor and organization profile methods
+api.createDoctor = async (profile) => {
+  try {
+    return await api.post('/api/doctors', {
+      name: profile.name,
+      specialty: profile.specialty,
+      rating: profile.rating,
+      patientCount: profile.patientCount,
+      experience: profile.experience,
+      organization: profile.organization,    // expects {id, name}
+      availability: profile.availability,
+      image: profile.image,
+      contact: profile.contact,
+      address: profile.address
+    });
+  } catch (error) {
+    console.error("Error creating doctor profile:", error);
+    throw error;
+  }
+};
+
+api.createOrganization = async (profile) => {
+  try {
+    return await api.post('/api/organizations', {
+      name: profile.name,
+      type: profile.type,
+      rating: profile.rating,
+      doctorCount: profile.doctorCount,
+      specialties: profile.specialties,
+      features: profile.features,
+      image: profile.image,
+      contact: profile.contact,
+      address: profile.address
+    });
+  } catch (error) {
+    console.error("Error creating organization profile:", error);
+    throw error;
+  }
+};
+
+api.listDoctors = async () => {
+  try {
+    return await api.get('/api/doctors');
+  } catch (error) {
+    console.error("Error listing doctors:", error);
+    throw error;
+  }
+};
+
+api.listOrganizations = async () => {
+  try {
+    return await api.get('/api/organizations');
+  } catch (error) {
+    console.error("Error listing organizations:", error);
+    throw error;
+  }
+};
+
 // Export the enhanced API instance
 export default api;
 
