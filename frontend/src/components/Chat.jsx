@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import ChatSidebar from "./ChatSidebar";
 import UserSelectionModal from "./UserSelectionModal";
 import api from "../services/api";
+import messageCache from "../services/MessageCacheService";
 import { 
   initializeSocket, 
   joinRoom, 
@@ -68,9 +69,6 @@ const ChatInput = ({ onSend, disabled }) => {
 
 export default function Chat() {
   const [messages, setMessages] = useState([]);
-  const [messagesCache, setMessagesCache] = useState({}); // Add message cache by room ID
-  const [lastCacheUpdate, setLastCacheUpdate] = useState({}); // Track when each cache was last updated
-  const CACHE_TTL = 10 * 60 * 1000; // 10 minutes in milliseconds
   const initialLoadRef = useRef({}); // Track initial loads to prevent duplicate requests
   const [isTyping, setIsTyping] = useState(false);
   const [typingUsers, setTypingUsers] = useState([]);
@@ -89,7 +87,7 @@ export default function Chat() {
   const previousSelectedChatIdRef = useRef(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
-  const [oldestMessageId, setOldestMessageId] = useState(null);
+  const oldestMessageIdRef = useRef(null);
   const messageContainerRef = useRef(null);
   const lastTypingUpdateRef = useRef(0);
   const lastTypingEventRef = useRef(0);
@@ -103,45 +101,35 @@ export default function Chat() {
     endOfMessagesRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  // Enhanced cache update function with timestamp
-  const updateMessageCache = useCallback((roomId, newMessages) => {
-    setMessagesCache(prevCache => ({
-      ...prevCache,
-      [roomId]: newMessages
-    }));
-    setLastCacheUpdate(prev => ({
-      ...prev,
-      [roomId]: Date.now()
-    }));
-  }, []);
-
-  // Check if cache is valid (not expired)
-  const isCacheValid = useCallback((roomId) => {
-    const lastUpdate = lastCacheUpdate[roomId];
-    if (!lastUpdate) return false;
-    return (Date.now() - lastUpdate) < CACHE_TTL;
-  }, [lastCacheUpdate]);
-
-  // Enhanced function to handle cache misses gracefully
+  // Enhanced function to handle cache misses with better state management
   const loadChatHistory = useCallback(async (isInitialLoad = false) => {
-    if (!selectedChatId || loadingHistory) return;
+    if (!selectedChatId) return;
     
-    if (isInitialLoad && initialLoadRef.current[selectedChatId]) {
-      return; // Prevent duplicate initial loads
+    // Check if we already have an ongoing request of this type
+    if (messageCache.isLoading(selectedChatId, isInitialLoad ? 'initial' : 'older')) {
+      console.log(`Already loading ${isInitialLoad ? 'initial' : 'older'} messages for room ${selectedChatId}`);
+      return;
     }
     
-    if (isInitialLoad) {
-      initialLoadRef.current[selectedChatId] = true;
+    // Check if we should try to load more
+    if (!isInitialLoad && !messageCache.hasMoreOlderMessages(selectedChatId)) {
+      console.log("No more older messages to load");
+      setHasMoreMessages(false);
+      return;
     }
     
-    if (!hasMoreMessages && !isInitialLoad) return;
-
+    // Set loading state for this specific request type
+    messageCache.setLoading(selectedChatId, isInitialLoad ? 'initial' : 'older', true);
     setLoadingHistory(true);
+    
     try {
       const params = { limit: 20 };
-      if (oldestMessageId && !isInitialLoad) params.before = oldestMessageId;
+      if (oldestMessageIdRef.current && !isInitialLoad) {
+        params.before = oldestMessageIdRef.current;
+      }
 
       const messagesData = await api.get(`/api/chat/rooms/${selectedChatId}/messages`, { params });
+      
       if (Array.isArray(messagesData) && messagesData.length > 0) {
         const transformedMessages = messagesData.map(message => ({
           id: message.id,
@@ -152,33 +140,42 @@ export default function Chat() {
           serverTimestamp: message.timestamp,
         }));
         
+        // Update cache and state based on whether this is initial load or pagination
         if (isInitialLoad) {
           setMessages(transformedMessages);
-          updateMessageCache(selectedChatId, transformedMessages);
-          setOldestMessageId(messagesData[0].id);
+          messageCache.updateMessages(selectedChatId, transformedMessages, 'replace');
+          if (messagesData.length > 0) {
+            oldestMessageIdRef.current = messagesData[0].id;
+          }
         } else {
           setMessages(prev => {
             const updatedMessages = [...transformedMessages, ...prev];
-            updateMessageCache(selectedChatId, updatedMessages);
+            messageCache.updateMessages(selectedChatId, updatedMessages, 'replace');
             return updatedMessages;
           });
           if (messagesData.length > 0) {
-            setOldestMessageId(messagesData[0].id);
+            oldestMessageIdRef.current = messagesData[0].id;
           }
         }
         
-        setHasMoreMessages(messagesData.length === params.limit);
+        // Update pagination state
+        const hasMore = messagesData.length === params.limit;
+        messageCache.setHasMoreOlderMessages(selectedChatId, hasMore);
+        setHasMoreMessages(hasMore);
       } else {
         if (isInitialLoad) {
           // No messages in this chat yet
           setMessages([]);
-          updateMessageCache(selectedChatId, []);
+          messageCache.updateMessages(selectedChatId, [], 'replace');
         }
+        messageCache.setHasMoreOlderMessages(selectedChatId, false);
         setHasMoreMessages(false);
       }
     } catch (error) {
       console.error("Error loading chat history:", error);
+      messageCache.setHasMoreOlderMessages(selectedChatId, false);
       setHasMoreMessages(false);
+      
       if (isInitialLoad) {
         const errorMessage = {
           id: 'error-loading-messages',
@@ -187,11 +184,13 @@ export default function Chat() {
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         };
         setMessages([errorMessage]);
+        // Don't cache error messages
       }
     } finally {
+      messageCache.setLoading(selectedChatId, isInitialLoad ? 'initial' : 'older', false);
       setLoadingHistory(false);
     }
-  }, [selectedChatId, hasMoreMessages, loadingHistory, oldestMessageId, currentUser, updateMessageCache]);
+  }, [selectedChatId, currentUser]);
 
   const updateTypingStatus = useCallback((isTyping) => {
     const now = Date.now();
@@ -207,10 +206,13 @@ export default function Chat() {
   }, [selectedChatId]);
 
   const handleScroll = useCallback(() => {
-    if (messageContainerRef.current.scrollTop < 50 && hasMoreMessages && !loadingHistory) {
-      loadChatHistory();
+    if (messageContainerRef.current && 
+        messageContainerRef.current.scrollTop < 50 && 
+        !messageCache.isLoading(selectedChatId) && 
+        messageCache.hasMoreOlderMessages(selectedChatId)) {
+      loadChatHistory(false);
     }
-  }, [hasMoreMessages, loadingHistory, loadChatHistory]);
+  }, [selectedChatId, loadChatHistory]);
 
   useEffect(() => {
     const initChat = async () => {
@@ -268,7 +270,7 @@ export default function Chat() {
       if (!selectedChatId) {
         setMessages([]);
         setCurrentRoom(null);
-        setOldestMessageId(null);
+        oldestMessageIdRef.current = null;
         setHasMoreMessages(true);
         previousSelectedChatIdRef.current = null;
         return;
@@ -290,38 +292,40 @@ export default function Chat() {
         joinRoom(selectedChatId);
         console.log(`Joined room ${selectedChatId}`);
         
-        // Enhanced cache logic with validation
-        if (messagesCache[selectedChatId] && isCacheValid(selectedChatId)) {
+        // Check if this is the first time loading this chat
+        const initialLoadDone = messageCache.hasInitialLoad(selectedChatId);
+        
+        // Use MessageCacheService to get cached messages
+        const cachedMessages = messageCache.getMessages(selectedChatId);
+        
+        if (cachedMessages) {
           console.log(`Using cached messages for room ${selectedChatId}`);
-          setMessages(messagesCache[selectedChatId]);
-          setOldestMessageId(messagesCache[selectedChatId][0]?.id || null);
-          setHasMoreMessages(true);
+          setMessages(cachedMessages);
+          oldestMessageIdRef.current = messageCache.getRoomMetadata(selectedChatId).oldestMessageId;
+          setHasMoreMessages(messageCache.hasMoreOlderMessages(selectedChatId));
           
-          // Optionally fetch newest messages in background to ensure cache is up-to-date
-          setTimeout(() => {
-            if (isMounted) {
-              api.get(`/api/chat/rooms/${selectedChatId}/messages`, { params: { limit: 5 } })
-                .then(newestMessages => {
-                  if (Array.isArray(newestMessages) && newestMessages.length > 0) {
-                    const lastCachedMessageTime = messagesCache[selectedChatId]?.[messagesCache[selectedChatId].length - 1]?.serverTimestamp;
-                    const hasNewMessages = newestMessages.some(msg => 
-                      !lastCachedMessageTime || new Date(msg.timestamp) > new Date(lastCachedMessageTime)
-                    );
-                    
-                    if (hasNewMessages) {
-                      console.log("Cache is outdated, refreshing messages");
-                      loadChatHistory(true); // Reload with fresh data
-                    }
-                  }
-                })
-                .catch(err => console.error("Error checking for new messages:", err));
-            }
-          }, 100);
+          // Even with a valid cache, check for newer messages in background
+          if (!messageCache.isLoading(selectedChatId, 'newer')) {
+            messageCache.setLoading(selectedChatId, 'newer', true);
+            api.get(`/api/chat/rooms/${selectedChatId}/messages`, { params: { limit: 5 } })
+              .then(newestMessages => {
+                if (isMounted && Array.isArray(newestMessages) && newestMessages.length > 0 &&
+                    messageCache.hasNewerMessages(selectedChatId, newestMessages)) {
+                  console.log("Cache is outdated, refreshing messages");
+                  loadChatHistory(true); // Reload with fresh data
+                }
+                if (isMounted) messageCache.setLoading(selectedChatId, 'newer', false);
+              })
+              .catch(err => {
+                console.error("Error checking for new messages:", err);
+                if (isMounted) messageCache.setLoading(selectedChatId, 'newer', false);
+              });
+          }
         } else {
           // Cache miss or invalid cache
           console.log(`Cache miss or invalid for room ${selectedChatId}, loading from server`);
           setMessages([]);
-          setOldestMessageId(null);
+          oldestMessageIdRef.current = null;
           setHasMoreMessages(true);
           await loadChatHistory(true);
         }
@@ -347,7 +351,7 @@ export default function Chat() {
     };
 
     manageRoomConnectionAndMessages();
-  }, [selectedChatId, chatRooms, currentUser, messagesCache, updateMessageCache, loadChatHistory, isCacheValid]);
+  }, [selectedChatId, chatRooms, currentUser, loadChatHistory]);
 
   useEffect(() => {
     if (!selectedChatId || !currentUser) return;
@@ -366,7 +370,7 @@ export default function Chat() {
         setMessages(prev => {
           const updatedMessages = [...prev, newMessage];
           // Update cache when receiving new message
-          updateMessageCache(selectedChatId, updatedMessages);
+          messageCache.updateMessages(selectedChatId, updatedMessages, 'replace');
           return updatedMessages;
         });
       }
@@ -399,7 +403,7 @@ export default function Chat() {
       cleanupTyping();
       onStatus(() => {});
     };
-  }, [selectedChatId, currentUser, updateMessageCache]);
+  }, [selectedChatId, currentUser]);
 
   useEffect(() => {
     scrollToBottom();
@@ -461,7 +465,7 @@ export default function Chat() {
     setMessages(prev => {
       const updatedMessages = [...prev, newMessage];
       // Update cache when sending new message
-      updateMessageCache(selectedChatId, updatedMessages);
+      messageCache.updateMessages(selectedChatId, updatedMessages, 'replace');
       return updatedMessages;
     });
     
@@ -469,7 +473,7 @@ export default function Chat() {
     updateTypingStatus(false);
     
     socketSendMessage(selectedChatId, messageText.trim());
-  }, [selectedChatId, currentUser, stopTyping, updateTypingStatus, updateMessageCache]);
+  }, [selectedChatId, currentUser, stopTyping, updateTypingStatus]);
 
   const initiateCall = (type) => {
     navigate('/call-setup', { 
@@ -493,13 +497,13 @@ export default function Chat() {
   const refreshChatCache = useCallback((roomId = null) => {
     if (roomId) {
       // Invalidate specific room cache
-      setLastCacheUpdate(prev => ({...prev, [roomId]: null}));
+      messageCache.invalidateCache(roomId);
       if (roomId === selectedChatId) {
         loadChatHistory(true);
       }
     } else {
       // Invalidate all caches
-      setLastCacheUpdate({});
+      messageCache.invalidateCache();
       if (selectedChatId) {
         loadChatHistory(true);
       }
@@ -657,21 +661,23 @@ export default function Chat() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 bg-gray-50" ref={messageContainerRef} onScroll={handleScroll}>
-        {hasMoreMessages && !loadingHistory && messages.length > 0 && (
+        {messageCache.hasMoreOlderMessages(selectedChatId) && !messageCache.isLoading(selectedChatId, 'older') && messages.length > 0 && (
           <div className="text-center text-gray-500 my-4">
             <button
-              onClick={loadChatHistory}
-              disabled={loadingHistory}
+              onClick={() => loadChatHistory(false)}
               className="text-sm text-violet-600 hover:underline"
             >
               Load older messages
             </button>
           </div>
         )}
-        {loadingHistory && (
-          <div className="text-center text-gray-500 my-4">Loading...</div>
+        {messageCache.isLoading(selectedChatId, 'older') && (
+          <div className="text-center text-gray-500 my-4">Loading older messages...</div>
         )}
-        {messages.length === 0 && selectedChatId && !loadingHistory && (
+        {messageCache.isLoading(selectedChatId, 'initial') && messages.length === 0 && (
+          <div className="text-center text-gray-500 my-4">Loading messages...</div>
+        )}
+        {messages.length === 0 && selectedChatId && !messageCache.isLoading(selectedChatId) && (
           <div className="text-center text-gray-500 my-8">
             No messages in this chat yet. Say hello!
           </div>
