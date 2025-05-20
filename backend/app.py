@@ -42,6 +42,7 @@ from routes.ads import ads_bp
 from routes.comments import comments_bp
 from routes.likes import likes_bp
 from routes.profile import profile_bp
+from routes.profiles import profiles_bp
 from routes.chat import chat_bp, register_socketio_handlers
 
 # Initialize Flask app
@@ -59,7 +60,7 @@ app.config["MAIL_DEFAULT_SENDER"] = "your-email@gmail.com"
 
 # Update SocketIO to allow CORS properly and set up namespaces
 socketio = SocketIO(app, 
-                   cors_allowed_origins=["http://localhost:5173", "http://192.168.171.235:5173"], 
+                   cors_allowed_origins=["http://localhost:5173", "http://192.168.88.56:5173"], 
                    async_mode='threading', 
                    manage_session=True,
                    logger=True, 
@@ -102,7 +103,7 @@ socketio.on_namespace(monitor_namespace)
 
 # Improve CORS configuration
 CORS(app, 
-     origins=["http://localhost:5173", "http://192.168.171.235:5173"],
+     origins=["http://localhost:5173", "http://192.168.88.56:5173"],
      methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
      allow_headers=["Content-Type", "Authorization"],
      expose_headers=["Content-Type", "Authorization"],
@@ -136,6 +137,7 @@ app.register_blueprint(ads_bp)
 app.register_blueprint(comments_bp)
 app.register_blueprint(likes_bp)
 app.register_blueprint(profile_bp)
+app.register_blueprint(profiles_bp)
 app.register_blueprint(chat_bp)
 register_socketio_handlers(socketio, '/chat')  # Add namespace parameter here
 
@@ -177,7 +179,7 @@ def add_cors_headers(response):
     origin = request.headers.get('Origin')
     allowed_origins = [
         "http://localhost:5173",
-        "http://192.168.171.235:5173"
+        "http://192.168.88.56:5173"
     ]
     if origin in allowed_origins:
         response.headers['Access-Control-Allow-Origin'] = origin
