@@ -44,3 +44,5 @@ class User(db.Model, UserMixin):
         backref=db.backref('contacted_by', lazy='dynamic'),
         lazy='dynamic'
     )
+    doctor_profile      = db.relationship('DoctorProfile', back_populates='user', uselist=False)
+    organization_profile= db.relationship('OrganizationProfile', back_populates='user', uselist=False)
