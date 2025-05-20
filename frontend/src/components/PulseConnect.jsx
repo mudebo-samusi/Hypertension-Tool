@@ -1,6 +1,8 @@
 import React from 'react';
 import {useState, useEffect } from 'react';
 import { Search, User, Users, Hospital, Heart, Filter, X, Plus, Phone, Mail, MapPin, CheckCircle, AlertCircle, Clock } from 'lucide-react';
+import CreatePostModal from './CreatePostModal';
+import api from '../services/api';
 
 // Data models
 const mockDoctors = [
@@ -80,8 +82,8 @@ const filterResults = (query, filters, items, type) => {
     // Search query matching
     const matchesQuery = !query || 
       item.name.toLowerCase().includes(query.toLowerCase()) ||
-      (type === 'doctor' && item.specialty.toLowerCase().includes(query.toLowerCase())) ||
-      (type === 'organization' && item.type.toLowerCase().includes(query.toLowerCase()));
+      (type === 'doctor' && item.specialty?.toLowerCase().includes(query.toLowerCase())) ||
+      (type === 'organization' && item.type?.toLowerCase().includes(query.toLowerCase()));
     
     // Filter matching
     let matchesFilters = true;
@@ -89,7 +91,8 @@ const filterResults = (query, filters, items, type) => {
       if (type === 'doctor' && filters.specialty && item.specialty !== filters.specialty) {
         matchesFilters = false;
       }
-      if (type === 'doctor' && filters.organization && item.organization.id !== filters.organization) {
+      if (type === 'doctor' && filters.organization && 
+          (!item.organization || item.organization.id !== filters.organization)) {
         matchesFilters = false;
       }
       if (type === 'organization' && filters.orgType && item.type !== filters.orgType) {
@@ -157,7 +160,7 @@ const DoctorCard = ({ doctor }) => (
         <div className="flex items-center text-sm text-gray-500 mt-1">
           <span className="flex items-center">
             <Hospital size={14} className="mr-1" />
-            {doctor.organization.name}
+            {doctor.organization?.name || 'Independent'}
           </span>
           <span className="mx-2">•</span>
           <span className="flex items-center">
@@ -170,7 +173,7 @@ const DoctorCard = ({ doctor }) => (
     
     <div className="mt-3 flex justify-between items-center">
       <div className="flex items-center">
-        {doctor.availability.includes('Available') ? (
+        {doctor.availability?.includes('Available') ? (
           <span className="flex items-center text-green-600 text-sm">
             <CheckCircle size={14} className="mr-1" />
             {doctor.availability}
@@ -178,7 +181,7 @@ const DoctorCard = ({ doctor }) => (
         ) : (
           <span className="flex items-center text-amber-600 text-sm">
             <Clock size={14} className="mr-1" />
-            {doctor.availability}
+            {doctor.availability || 'Unknown availability'}
           </span>
         )}
       </div>
@@ -379,15 +382,15 @@ const DetailPanel = ({ item, type, onClose }) => {
             <div className="space-y-2">
               <p className="flex items-center text-gray-700">
                 <Phone size={18} className="mr-2 text-violet-600" />
-                {item.contact.phone}
+                {item.contact?.phone || 'N/A'}
               </p>
               <p className="flex items-center text-gray-700">
                 <Mail size={18} className="mr-2 text-violet-600" />
-                {item.contact.email}
+                {item.contact?.email || 'N/A'}
               </p>
               <p className="flex items-center text-gray-700">
                 <MapPin size={18} className="mr-2 text-violet-600" />
-                {item.address}
+                {item.address || 'N/A'}
               </p>
             </div>
           </div>
@@ -395,11 +398,11 @@ const DetailPanel = ({ item, type, onClose }) => {
           {type === 'doctor' && (
             <div>
               <h3 className="text-lg font-medium mb-2">Experience</h3>
-              <p className="text-gray-700">{item.experience}</p>
+              <p className="text-gray-700">{item.experience || 'N/A'}</p>
               
               <div className="mt-4">
                 <h4 className="font-medium text-gray-800">Organization</h4>
-                <p className="text-gray-700">{item.organization.name}</p>
+                <p className="text-gray-700">{item.organization?.name || 'Independent'}</p>
               </div>
             </div>
           )}
@@ -408,11 +411,11 @@ const DetailPanel = ({ item, type, onClose }) => {
             <div>
               <h3 className="text-lg font-medium mb-2">Specialties</h3>
               <div className="flex flex-wrap gap-2">
-                {item.specialties.map((specialty, idx) => (
+                {item.specialties?.map((specialty, idx) => (
                   <span key={idx} className="bg-violet-100 text-violet-800 rounded-full px-3 py-1 text-sm">
                     {specialty}
                   </span>
-                ))}
+                )) || <span className="text-gray-500">No specialties listed</span>}
               </div>
             </div>
           )}
@@ -433,8 +436,8 @@ const DetailPanel = ({ item, type, onClose }) => {
                 </div>
                 <div className="bg-gray-50 p-3 rounded-lg col-span-2">
                   <p className="text-sm text-gray-600">Availability</p>
-                  <p className={`font-medium ${item.availability.includes('Available') ? 'text-green-600' : 'text-amber-600'}`}>
-                    {item.availability}
+                  <p className={`font-medium ${item.availability?.includes('Available') ? 'text-green-600' : 'text-amber-600'}`}>
+                    {item.availability || 'Unknown'}
                   </p>
                 </div>
               </div>
@@ -460,12 +463,14 @@ const DetailPanel = ({ item, type, onClose }) => {
               <div>
                 <h3 className="text-lg font-medium mb-2">Features</h3>
                 <ul className="space-y-2">
-                  {item.features.map((feature, idx) => (
+                  {item.features?.map((feature, idx) => (
                     <li key={idx} className="flex items-center text-gray-700">
                       <CheckCircle size={16} className="mr-2 text-green-600" />
                       {feature}
                     </li>
-                  ))}
+                  )) || (
+                    <li className="text-gray-500">No features listed</li>
+                  )}
                 </ul>
               </div>
             </>
@@ -490,10 +495,57 @@ function PulseConnect() {
   const [activeFilters, setActiveFilters] = useState({});
   const [showFilters, setShowFilters] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [doctors, setDoctors] = useState([]);
+  const [organizations, setOrganizations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  
+  // Fetch doctors and organizations from the API
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        // We'll use mock data as a fallback if the API calls fail
+        let doctorData = [...mockDoctors];
+        let orgData = [...mockOrganizations];
+        
+        try {
+          const doctorsResponse = await api.listDoctors();
+          if (Array.isArray(doctorsResponse) && doctorsResponse.length > 0) {
+            // If we got a valid response, use it instead of mock data
+            doctorData = doctorsResponse;
+          }
+        } catch (err) {
+          console.warn("Could not fetch doctors from API, using mock data:", err);
+        }
+        
+        try {
+          const orgsResponse = await api.listOrganizations();
+          if (Array.isArray(orgsResponse) && orgsResponse.length > 0) {
+            // If we got a valid response, use it instead of mock data
+            orgData = orgsResponse;
+          }
+        } catch (err) {
+          console.warn("Could not fetch organizations from API, using mock data:", err);
+        }
+        
+        setDoctors(doctorData);
+        setOrganizations(orgData);
+        setLoading(false);
+      } catch (err) {
+        console.error("Error fetching data:", err);
+        setError(err.message || "An error occurred while fetching data");
+        setLoading(false);
+      }
+    };
+    
+    fetchData();
+  }, []);
   
   const filteredResults = activeTab === 'doctors' 
-    ? filterResults(searchQuery, activeFilters, mockDoctors, 'doctor')
-    : filterResults(searchQuery, activeFilters, mockOrganizations, 'organization');
+    ? filterResults(searchQuery, activeFilters, doctors, 'doctor')
+    : filterResults(searchQuery, activeFilters, organizations, 'organization');
     
   const handleApplyFilters = (filters) => {
     setActiveFilters(filters);
@@ -532,6 +584,25 @@ function PulseConnect() {
     if (key === 'availability') return 'Available Today';
     return value;
   };
+
+  const handleCreateEntity = async (entityData, entityType) => {
+    try {
+      let response;
+      if (entityType === 'doctor') {
+        response = await api.createDoctor(entityData);
+        // Get the ID from the response and add it to the entity data
+        const newDoctor = { ...entityData, id: response.id };
+        setDoctors([...doctors, newDoctor]);
+      } else {
+        response = await api.createOrganization(entityData);
+        const newOrg = { ...entityData, id: response.id };
+        setOrganizations([...organizations, newOrg]);
+      }
+    } catch (error) {
+      console.error(`Error creating ${entityType}:`, error);
+      alert(`Failed to create ${entityType}: ${error.message || 'Unknown error'}`);
+    }
+  };
   
   return (
     <div className="min-h-screen bg-gray-50">
@@ -552,7 +623,16 @@ function PulseConnect() {
       
       {/* Main content */}
       <main className="container mx-auto px-4 py-6">
-        {selectedItem ? (
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-violet-700"></div>
+          </div>
+        ) : error ? (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded relative">
+            <strong className="font-bold">Error!</strong>
+            <span className="block sm:inline"> {error}</span>
+          </div>
+        ) : selectedItem ? (
           <DetailPanel 
             item={selectedItem} 
             type={selectedItem.type} 
@@ -562,7 +642,16 @@ function PulseConnect() {
           <>
             {/* Search and filters header */}
             <div className="mb-6">
-              <h2 className="text-2xl font-bold mb-4">Find Hypertension Care Providers</h2>
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-bold">Find Hypertension Care Providers</h2>
+                <button
+                  onClick={() => setIsCreateModalOpen(true)}
+                  className="flex items-center space-x-2 bg-violet-600 text-white px-4 py-2 rounded-lg hover:bg-violet-700 transition"
+                >
+                  <Plus size={18} />
+                  <span>Add {activeTab === 'doctors' ? 'Doctor' : 'Organization'}</span>
+                </button>
+              </div>
               <div className="flex flex-col md:flex-row space-y-3 md:space-y-0 md:space-x-4">
                 <SearchBar 
                   value={searchQuery}
@@ -652,9 +741,18 @@ function PulseConnect() {
             </div>
           </>
         )}
+        
+        {/* Create Post Modal */}
+        <CreatePostModal
+          isOpen={isCreateModalOpen}
+          onClose={() => setIsCreateModalOpen(false)}
+          onSave={handleCreateEntity}
+          entityType={activeTab === 'doctors' ? 'doctor' : 'organization'}
+          organizations={organizations}
+        />
       </main>
     </div>
   );
 }
 
-export default PulseConnect; // Ensure the component is exported correctly
+export default PulseConnect;
