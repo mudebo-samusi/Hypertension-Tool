@@ -19,8 +19,8 @@ FROM nginx:stable-alpine
 # Copy build output to Nginx public directory
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Optional: Use a custom Nginx config for SPA routing
-COPY nginx.conf /etc/nginx/nginx.conf
+# Copy nginx config from correct location
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 
