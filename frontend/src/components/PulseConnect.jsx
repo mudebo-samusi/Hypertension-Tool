@@ -586,23 +586,21 @@ function PulseConnect() {
   };
 
   const handleCreateEntity = async (entityData, entityType) => {
-    try {
-      let response;
-      if (entityType === 'doctor') {
-        response = await api.createDoctor(entityData);
-        // Get the ID from the response and add it to the entity data
-        const newDoctor = { ...entityData, id: response.id };
-        setDoctors([...doctors, newDoctor]);
-      } else {
-        response = await api.createOrganization(entityData);
-        const newOrg = { ...entityData, id: response.id };
-        setOrganizations([...organizations, newOrg]);
-      }
-    } catch (error) {
-      console.error(`Error creating ${entityType}:`, error);
-      alert(`Failed to create ${entityType}: ${error.message || 'Unknown error'}`);
+  try {
+    const response = await api.createProfile(entityData, entityType);
+    const newEntity = { ...entityData, id: response.id };
+
+    if (entityType === 'doctor') {
+      setDoctors([...doctors, newEntity]);
+    } else {
+      setOrganizations([...organizations, newEntity]);
     }
-  };
+  } catch (error) {
+    console.error(`Error creating ${entityType}:`, error);
+    alert(`Failed to create ${entityType}: ${error.message || 'Unknown error'}`);
+  }
+};
+
   
   return (
     <div className="min-h-screen bg-gray-50">

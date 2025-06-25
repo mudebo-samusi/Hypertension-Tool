@@ -657,7 +657,7 @@ export const PaymentForm = () => {
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-700 flex items-center">
                 <User className="w-4 h-4 mr-1" />
-                Patient Information
+                User Information
               </label>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <input

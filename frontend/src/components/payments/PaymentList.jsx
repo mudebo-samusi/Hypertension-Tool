@@ -3,10 +3,9 @@ import React, { useState, useEffect } from 'react';
 import { usePayment } from './PaymentContext';
 import { FileText, Search, Check, Clock, X, Filter } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import api from '../../services/api';
 
 export const PaymentList = () => {
-  const { payments, loading, fetchPaymentList } = usePayment();
+  const { payments, loading, fetchPaymentList, checkUserHasPayments } = usePayment();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [showSubscriptions, setShowSubscriptions] = useState(false);
@@ -28,7 +27,7 @@ export const PaymentList = () => {
   useEffect(() => {
     // First check if user has any payments before setting up polling
     const checkUserPayments = async () => {
-      const hasPayments = await api.checkUserHasPayments();
+      const hasPayments = await checkUserHasPayments();
       
       // Only initiate polling if we don't know or user has payments
       if (hasPayments !== false) {
@@ -48,7 +47,7 @@ export const PaymentList = () => {
     };
     
     checkUserPayments();
-  }, [fetchPaymentList, showSubscriptions]);
+  }, [checkUserHasPayments, fetchPaymentList, showSubscriptions]);
   
   const filteredPayments = Array.isArray(payments) ? payments.filter(payment => {
     // Guard against missing payment or properties
@@ -65,7 +64,7 @@ export const PaymentList = () => {
     const matchesStatus = filterStatus === 'all' || status === filterStatus;
     
     // Only show subscriptions if explicitly enabled
-    const matchesSubscriptionFilter = showSubscriptions || !payment.isSubscription;
+    const matchesSubscriptionFilter = showSubscriptions || !payment.is_subscription_payment;
     
     return matchesSearch && matchesStatus && matchesSubscriptionFilter;
   }) : [];

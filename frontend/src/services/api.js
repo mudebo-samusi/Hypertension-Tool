@@ -924,41 +924,13 @@ api.createChatRoom = async (name, userIds, isGroup) => {
 };
 
 // Add doctor and organization profile methods
-api.createDoctor = async (profile) => {
+api.createProfile = async (profile, type) => {
   try {
-    return await api.post('/api/doctors', {
-      name: profile.name,
-      specialty: profile.specialty,
-      rating: profile.rating,
-      patientCount: profile.patientCount,
-      experience: profile.experience,
-      organization: profile.organization,    // expects {id, name}
-      availability: profile.availability,
-      image: profile.image,
-      contact: profile.contact,
-      address: profile.address
+    return await api.post('/api/profiles', {
+      ...profile
     });
   } catch (error) {
-    console.error("Error creating doctor profile:", error);
-    throw error;
-  }
-};
-
-api.createOrganization = async (profile) => {
-  try {
-    return await api.post('/api/organizations', {
-      name: profile.name,
-      type: profile.type,
-      rating: profile.rating,
-      doctorCount: profile.doctorCount,
-      specialties: profile.specialties,
-      features: profile.features,
-      image: profile.image,
-      contact: profile.contact,
-      address: profile.address
-    });
-  } catch (error) {
-    console.error("Error creating organization profile:", error);
+    console.error(`Error creating ${type} profile:`, error);
     throw error;
   }
 };
@@ -984,31 +956,3 @@ api.listOrganizations = async () => {
 // Export the enhanced API instance
 export default api;
 
-// Add this at the end of the file:
-export async function createPayment(paymentData) {
-  // Use the same implementation as before
-  try {
-    const response = await api.post('/payments', paymentData);
-    return response || { 
-      id: new Date().getTime(),
-      status: 'completed',
-      amount: paymentData.amount,
-      currency: paymentData.currency || 'USD'
-    };
-  } catch (error) {
-    console.error("Error creating payment:", error);
-    if (error.error && error.error.includes("no column named")) {
-      console.warn("Database schema mismatch detected. The application may need to be updated.");
-      return {
-        id: `local_${new Date().getTime()}`,
-        status: 'pending',
-        amount: paymentData.amount,
-        currency: paymentData.currency || 'USD',
-        payment_method: paymentData.payment_method,
-        client_id: paymentData.client_id,
-        created_locally: true
-      };
-    }
-    throw error;
-  }
-}

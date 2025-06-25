@@ -6,7 +6,7 @@ import os
 from werkzeug.utils import secure_filename
 import uuid
 
-profile_bp = Blueprint('profile', __name__)
+profile_bp = Blueprint('profile', __name__, url_prefix='/profile')
 
 # Define allowed file extensions for security
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}

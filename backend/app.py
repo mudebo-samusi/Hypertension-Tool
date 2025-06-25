@@ -44,6 +44,7 @@ from routes.likes import likes_bp
 from routes.profile import profile_bp
 from routes.profiles import profiles_bp
 from routes.chat import chat_bp, register_socketio_handlers
+from routes.payments import payments_bp
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -60,7 +61,7 @@ app.config["MAIL_DEFAULT_SENDER"] = "your-email@gmail.com"
 
 # Update SocketIO to allow CORS properly and set up namespaces
 socketio = SocketIO(app, 
-                   cors_allowed_origins=["http://localhost:5173", "http://192.168.88.56:5173"], 
+                   cors_allowed_origins=["http://localhost:5173", "http://192.168.66.235:5173"], 
                    async_mode='threading', 
                    manage_session=True,
                    logger=True, 
@@ -103,7 +104,7 @@ socketio.on_namespace(monitor_namespace)
 
 # Improve CORS configuration
 CORS(app, 
-     origins=["http://localhost:5173", "http://192.168.88.56:5173"],
+     origins=["http://localhost:5173", "http://192.168.66.235:5173"],
      methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
      allow_headers=["Content-Type", "Authorization"],
      expose_headers=["Content-Type", "Authorization"],
@@ -139,6 +140,7 @@ app.register_blueprint(likes_bp)
 app.register_blueprint(profile_bp)
 app.register_blueprint(profiles_bp)
 app.register_blueprint(chat_bp)
+app.register_blueprint(payments_bp)  # Register chat blueprint with URL prefix
 register_socketio_handlers(socketio, '/chat')  # Add namespace parameter here
 
 # Add JWT error handler
@@ -179,7 +181,7 @@ def add_cors_headers(response):
     origin = request.headers.get('Origin')
     allowed_origins = [
         "http://localhost:5173",
-        "http://192.168.88.56:5173"
+        "http://192.168.66.235:5173"
     ]
     if origin in allowed_origins:
         response.headers['Access-Control-Allow-Origin'] = origin
@@ -323,72 +325,7 @@ def get_profile():
     
     return jsonify(profile_data), 200
 
-# Add missing payment profile endpoint
-@app.route("/profile/payment-info", methods=["GET"])
-@jwt_required()
-def get_payment_profile():
-    try:
-        user_id = int(get_jwt_identity())
-        user = db.session.get(User, user_id)
-        
-        if not user:
-            return jsonify({"error": "User not found"}), 404
-            
-        # Check if user has any payments at all
-        # Expanded to search any relationship to the user (not just direct ids)
-        has_payments = db.session.query(Payment).filter(
-            db.or_(
-                Payment.user_id == user_id,
-                Payment.patient_id == user_id,
-                Payment.provider_id == user_id,
-                Payment.patient_name == user.username,
-                Payment.provider_name == user.username
-            )
-        ).limit(1).count() > 0
-        
-        # Get payment statistics
-        total_payments = 0
-        completed_payments = 0
-        pending_payments = 0
-        subscription_payments = 0
-        
-        if has_payments:
-            # Only count if payments exist for this user
-            payment_query = Payment.query.filter(
-                db.or_(
-                    Payment.user_id == user_id,
-                    Payment.patient_id == user_id,
-                    Payment.provider_id == user_id,
-                    Payment.patient_name == user.username, 
-                    Payment.provider_name == user.username
-                )
-            )
-            
-            total_payments = payment_query.count()
-            completed_payments = payment_query.filter_by(status="completed").count()
-            pending_payments = payment_query.filter_by(status="pending").count()
-            subscription_payments = payment_query.filter_by(is_subscription_payment=True).count()
 
-        # Get user's active subscription
-        active_subscription = None
-        subscription = Subscription.query.filter_by(user_id=user_id, status="active").first()
-        if subscription:
-            active_subscription = subscription.to_dict()
-            
-        return jsonify({
-            "has_payments": has_payments,
-            "payment_stats": {
-                "total_payments": total_payments,
-                "completed_payments": completed_payments,
-                "pending_payments": pending_payments,
-                "subscription_payments": subscription_payments
-            },
-            "active_subscription": active_subscription,
-            "username": user.username
-        }), 200
-    except Exception as e:
-        logging.error(f"Error fetching payment profile: {e}")
-        return jsonify({"error": f"Failed to fetch payment profile: {str(e)}"}), 500
 
 # User loader for Flask-Login
 @login_manager.user_loader
