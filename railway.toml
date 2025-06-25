@@ -1,0 +1,6 @@
+[build]
+builder = "nixpacks"
+buildCommand = "echo 'Please deploy frontend and backend as separate services'"
+
+[deploy]
+startCommand = "echo 'Please deploy frontend and backend as separate services'"
