@@ -1,0 +1,12 @@
+flask>=2.3.3
+flask-cors>=4.0.0
+flask-socketio>=5.3.6
+flask-jwt-extended>=4.6.0
+python-socketio>=5.9.0
+eventlet>=0.33.3
+numpy>=1.21.0,<2.0.0
+schedule>=1.2.0
+python-dotenv>=1.0.0
+gunicorn>=21.2.0
+requests>=2.31.0
+python-socketio[client]>=5.9.0

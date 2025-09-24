@@ -4,16 +4,38 @@ import { Link } from "react-router-dom";
 import AuthContext from "../context/AuthContext";
 import logo2 from "../assets/logo2.png";
 import api from "../services/api";
-import { FaChevronDown } from "react-icons/fa";
+import { 
+  FaChevronLeft, 
+  FaChevronRight, 
+  FaTachometerAlt, 
+  FaHistory, 
+  FaComments, 
+  FaUser, 
+  FaThumbsUp, 
+  FaShoppingCart, 
+  FaCalendarAlt, 
+  FaHeartbeat, 
+  FaUsers, 
+  FaFileAlt, 
+  FaUserMd, 
+  FaCreditCard, 
+  FaChartLine, 
+  FaRobot, 
+  FaBell, 
+  FaSignOutAlt, 
+  FaEllipsisV 
+} from "react-icons/fa";
 
 const Navbar = () => {
   const { user, logout } = useContext(AuthContext);
-  const [isOpen, setIsOpen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(true);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [notifications, setNotifications] = useState(3); // Mock notification count
   const dropdownRef = useRef(null);
 
-  const toggleMenu = () => {
-    setIsOpen(!isOpen);
+  const toggleSidebar = () => {
+    setIsExpanded(!isExpanded);
+    setDropdownOpen(false); // Close dropdown when toggling sidebar
   };
 
   const toggleDropdown = () => {
@@ -39,157 +61,165 @@ const Navbar = () => {
   }, []);
 
   const mainLinks = [
-    { name: "Dashboard", path: "/dashboard" },
-    { name: "History", path: "/history" },
-    { name: "Chat", path: "/chat" }
+    { name: "Dashboard", path: "/dashboard", icon: FaTachometerAlt },
+    { name: "History", path: "/history", icon: FaHistory },
+    { name: "Chat", path: "/chat", icon: FaComments }
   ];
   
   const dropdownLinks = [
-    { name: "Profile", path: "/profile" },
-    { name: "Recommendations", path: "/recommendations" },
-    { name: "PulseMarket", path: "/pulse-market" },
-    { name: "Subscriptions", path: "/subscriptions" },
-    { name: "PulseCare", path: "/PulseCare" },
-    { name: "PulseConnect", path: "/PulseConnect" },
-    { name: "PulseDoc", path: "/PulseDoc" },
-    { name: "PulseMedic", path: "/PulseMedic" },
-    { name: "Make Payments", path: "/payments/new" },
-    { name: "PulsePay Analytics", path: "/payments" },
-    { name: "PulseAI Analytics", path: "/AI-analytics" },
-
+    { name: "Profile", path: "/profile", icon: FaUser },
+    { name: "Recommendations", path: "/recommendations", icon: FaThumbsUp },
+    { name: "PulseMarket", path: "/pulse-market", icon: FaShoppingCart },
+    { name: "Subscriptions", path: "/subscriptions", icon: FaCalendarAlt },
+    { name: "PulseCare", path: "/PulseCare", icon: FaHeartbeat },
+    { name: "PulseConnect", path: "/PulseConnect", icon: FaUsers },
+    { name: "PulseDoc", path: "/PulseDoc", icon: FaFileAlt },
+    { name: "PulseMedic", path: "/PulseMedic", icon: FaUserMd },
+    { name: "Make Payments", path: "/payments/new", icon: FaCreditCard },
+    { name: "PulsePay Analytics", path: "/payments", icon: FaChartLine },
+    { name: "PulseAI Analytics", path: "/AI-analytics", icon: FaRobot },
   ];
 
-  return (
-    <nav className="bg-white shadow-lg">
-      <div className="max-w-6xl mx-auto px-4">
-        <div className="flex justify-between items-center h-20">
-          <Link className="text-xl font-semibold text-violet-500" to="/">
-            <img src={logo2} alt="Logo" className="rounded-full w-18 h-22 mb-1" ></img>
-          </Link>
-
-          {/* Mobile menu button */}
-          <div className="md:hidden">
-            <button
-              onClick={toggleMenu}
-              className="text-gray-600 hover:text-gray-900 focus:outline-none"
-            >
-              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                {isOpen ? (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                ) : (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                )}
-              </svg>
-            </button>
+  if (!user) {
+    return (
+      <nav className="fixed top-0 left-0 right-0 bg-white shadow-lg border-b border-gray-200 z-50 h-16">
+        <div className="max-w-6xl mx-auto px-4 h-full">
+          <div className="flex justify-between items-center h-full">
+            <Link to="/" className="flex items-center">
+              <img src={logo2} alt="Logo" className="rounded-full w-10 h-10" />
+              <span className="ml-3 text-xl font-semibold text-violet-600">PulsePal</span>
+            </Link>
+            
+            <div className="flex space-x-4">
+              <Link 
+                className="bg-violet-600 hover:bg-violet-700 text-white font-semibold py-2 px-6 rounded-lg transition-colors"
+                to="/login"
+              >
+                Login
+              </Link>
+              <Link 
+                className="bg-violet-600 hover:bg-violet-700 text-white font-semibold py-2 px-6 rounded-lg transition-colors"
+                to="/register"
+              >
+                Register
+              </Link>
+            </div>
           </div>
+        </div>
+      </nav>
+    );
+  }
 
-          {/* Desktop menu */}
-          <div className="hidden md:flex space-x-4">
-            {!user ? (
-              <>
-                <Link className="text-gray-100 font-semibold rounded-2xl flex md:items-center h-10 w-18 bg-violet-600 hover:text-gray-100 hover:bg-violet-600" to="/login">
-                  <div className="mx-auto">Login</div>
-                </Link>
-                <Link className="text-gray-100 font-semibold rounded-2xl h-10 w-22 flex md:items-center bg-violet-600 hover:bg-violet-600 hover:text-gray-100" to="/register">
-                  <div className="mx-auto">Register</div>
-                </Link>
-              </>
-            ) : (
-              <>
-                {/* Main navigation links */}
-                {mainLinks.map((link) => (
-                  <Link 
-                    key={link.path} 
-                    className="text-gray-600 hover:text-gray-100 font-semibold hover:bg-violet-600 text-lg rounded-xl px-3 h-8 text-center flex items-center" 
-                    to={link.path}
-                  >
-                    {link.name}
-                  </Link>
-                ))}
-                
-                {/* Dropdown Menu */}
-                <div className="relative" ref={dropdownRef}>
-                  <button 
-                    onClick={toggleDropdown}
-                    className="text-gray-600 hover:text-gray-100 font-semibold hover:bg-violet-600 text-lg rounded-xl px-3 h-8 text-center flex items-center"
-                  >
-                    More <FaChevronDown className="ml-1 h-3 w-3" />
-                  </button>
-                  
-                  {dropdownOpen && (
-                    <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10">
-                      {dropdownLinks.map((link) => (
-                        <Link
-                          key={link.path}
-                          to={link.path}
-                          className="block px-4 py-2 text-lg text-gray-900 hover:bg-violet-600 hover:text-white"
-                          onClick={() => setDropdownOpen(false)}
-                        >
-                          {link.name}
-                        </Link>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                
-                <button 
-                  className="bg-violet-600 hover:bg-violet-600 text-white hover:text-white px-4 py-2 h-10 rounded-xl" 
-                  onClick={handleLogout}
-                >
-                  Logout
-                </button>
-              </>
+  return (
+    <div className={`fixed top-0 left-0 h-full bg-white shadow-lg border-r border-gray-200 transition-all duration-300 z-50 ${isExpanded ? 'w-52' : 'w-16'}`}>
+      <div className="flex flex-col h-full">
+        {/* Header with logo and toggle button */}
+        <div className="flex items-center justify-between p-4 border-b border-gray-200">
+          <Link to="/" className={`flex items-center ${!isExpanded && 'justify-center w-full'}`}>
+            <img src={logo2} alt="Logo" className="rounded-full w-8 h-8" />
+            {isExpanded && (
+              <span className="ml-3 text-xl font-semibold text-violet-600">PulsePal</span>
+            )}
+          </Link>
+          <button
+            onClick={toggleSidebar}
+            className="p-1 rounded-md hover:bg-gray-100 text-gray-600 hover:text-violet-600 transition-colors"
+          >
+            {isExpanded ? <FaChevronLeft /> : <FaChevronRight />}
+          </button>
+        </div>
+
+        {/* Notifications */}
+        <div className="p-2 border-b border-gray-200">
+          <div className={`flex items-center p-2 rounded-lg hover:bg-violet-50 cursor-pointer group ${!isExpanded && 'justify-center'}`}>
+            <div className="relative">
+              <FaBell className="text-gray-600 group-hover:text-violet-600 transition-colors" />
+              {notifications > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
+                  {notifications}
+                </span>
+              )}
+            </div>
+            {isExpanded && (
+              <span className="ml-3 text-gray-700 group-hover:text-violet-600 transition-colors">
+                Notifications
+              </span>
             )}
           </div>
         </div>
 
-        {/* Mobile menu dropdown */}
-        <div className={`md:hidden ${isOpen ? 'block' : 'hidden'} pb-4`}>
-          {!user ? (
-            <div className="flex flex-col space-y-2">
-              <Link className="text-gray-600 hover:text-gray-900 px-2 py-1 rounded-md" to="/login" onClick={toggleMenu}>Login</Link>
-              <Link className="text-gray-600 hover:text-gray-900 px-2 py-1 rounded-md" to="/register" onClick={toggleMenu}>Register</Link>
-            </div>
-          ) : (
-            <div className="flex flex-col space-y-2">
-              {/* Main links in mobile view */}
-              {mainLinks.map((link) => (
+        {/* Main Navigation */}
+        <div className="flex-1 py-4">
+          {/* Main Links */}
+          <div className="space-y-1 px-2">
+            {mainLinks.map((link) => {
+              const IconComponent = link.icon;
+              return (
                 <Link 
                   key={link.path}
-                  className="text-gray-600 hover:text-gray-900 px-2 py-1 rounded-md" 
-                  to={link.path} 
-                  onClick={toggleMenu}
+                  to={link.path}
+                  className={`flex items-center p-3 rounded-lg hover:bg-violet-50 text-gray-700 hover:text-violet-600 transition-colors group ${!isExpanded && 'justify-center'}`}
                 >
-                  {link.name}
+                  <IconComponent className="text-lg" />
+                  {isExpanded && (
+                    <span className="ml-3 font-medium">{link.name}</span>
+                  )}
                 </Link>
-              ))}
-              
-              {/* Dropdown links directly in mobile menu */}
-              {dropdownLinks.map((link) => (
-                <Link 
-                  key={link.path}
-                  className="text-gray-600 hover:text-gray-900 px-2 py-1 rounded-md" 
-                  to={link.path} 
-                  onClick={toggleMenu}
-                >
-                  {link.name}
-                </Link>
-              ))}
-              
-              <button 
-                className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md text-left"
-                onClick={async () => {
-                  toggleMenu();
-                  await handleLogout();
-                }}
-              >
-                Logout
-              </button>
-            </div>
-          )}
+              );
+            })}
+          </div>
+
+          {/* Dropdown Section */}
+          <div className="mt-6 px-2" ref={dropdownRef}>
+            <button 
+              onClick={toggleDropdown}
+              className={`flex items-center w-full p-3 rounded-lg hover:bg-violet-50 text-gray-700 hover:text-violet-600 transition-colors ${!isExpanded && 'justify-center'}`}
+            >
+              <FaEllipsisV className="text-lg" />
+              {isExpanded && (
+                <>
+                  <span className="ml-3 font-medium flex-1 text-left">More</span>
+                  <FaChevronRight className={`transition-transform ${dropdownOpen ? 'rotate-90' : ''}`} />
+                </>
+              )}
+            </button>
+            
+            {/* Dropdown Items */}
+            {dropdownOpen && isExpanded && (
+              <div className="mt-2 space-y-1 pl-4 border-l-2 border-violet-100">
+                {dropdownLinks.map((link) => {
+                  const IconComponent = link.icon;
+                  return (
+                    <Link
+                      key={link.path}
+                      to={link.path}
+                      className="flex items-center p-2 rounded-md hover:bg-violet-50 text-gray-600 hover:text-violet-600 transition-colors text-sm"
+                      onClick={() => setDropdownOpen(false)}
+                    >
+                      <IconComponent className="text-sm" />
+                      <span className="ml-3">{link.name}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Logout Button */}
+        <div className="p-4 border-t border-gray-200">
+          <button 
+            onClick={handleLogout}
+            className={`flex items-center w-full p-3 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-700 transition-colors ${!isExpanded && 'justify-center'}`}
+          >
+            <FaSignOutAlt className="text-lg" />
+            {isExpanded && (
+              <span className="ml-3 font-medium">Logout</span>
+            )}
+          </button>
         </div>
       </div>
-    </nav>
+    </div>
   );
 };
 

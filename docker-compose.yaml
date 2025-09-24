@@ -12,6 +12,8 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
     volumes:
       - ./backend:/app
+    networks:
+      - hypertension-network
 
   frontend:
     build:
@@ -21,3 +23,34 @@ services:
       - "80:80"
     depends_on:
       - backend
+      - bp-monitor
+    networks:
+      - hypertension-network
+
+  bp-monitor:
+    build:
+      context: ./Microservices/bp-monitor
+      dockerfile: Dockerfile
+    ports:
+      - "5001:5001"
+    environment:
+      - FLASK_ENV=production
+      - DATABASE_URL=sqlite:///data/bp_monitor.db
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - CORS_ORIGINS=http://localhost:5173,http://192.168.66.235:5173,http://localhost:80
+    volumes:
+      - ./data/bp-monitor:/app/data
+    networks:
+      - hypertension-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  hypertension-network:
+    driver: bridge
+
+volumes:
+  bp-monitor-data:

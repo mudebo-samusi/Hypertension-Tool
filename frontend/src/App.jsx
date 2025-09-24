@@ -10,7 +10,6 @@ import Reviews from "./components/Reviews";
 import Settings from "./components/Settings";
 import Patients from "./components/Patients";
 import Home from "./components/Home";
-import Navbar from "./components/Navbar";
 import DoctorReviews from "./components/DoctorReviews";
 import Footer from "./components/Footer";
 import Dashboard from "./components/Dashboard";
@@ -36,6 +35,7 @@ import OrgDashboard from "./components/OrgDashboard";
 import PulseConnect from "./components/PulseConnect";
 import PulseDoc from "./components/PulseDoc";
 import { TypingProvider } from './context/TypingContext';
+import Layout from "./components/Layout";
 
 function App() {
   return (
@@ -43,7 +43,7 @@ function App() {
       <AuthProvider>
         <PaymentProvider>
           <TypingProvider>
-            <Navbar/>
+            <Layout>
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
@@ -76,6 +76,7 @@ function App() {
               <Route path="/PulseConnect" element={<PulseConnect />} />
               <Route path="/PulseDoc" element={<PulseDoc />} />
             </Routes>
+            </Layout>
             <Footer/>
           </TypingProvider>
         </PaymentProvider>

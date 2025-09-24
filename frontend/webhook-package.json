@@ -1,0 +1,18 @@
+{
+  "name": "hypertension-webhook-server",
+  "version": "1.0.0",
+  "description": "Webhook server for receiving BP monitor notifications",
+  "type": "module",
+  "main": "webhookServer.mjs",
+  "scripts": {
+    "start": "node webhookServer.mjs",
+    "dev": "node --watch webhookServer.mjs"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
